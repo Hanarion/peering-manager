@@ -31,6 +31,7 @@ from .models import (
 
 
 class AutonomousSystemFilterSet(PeeringManagerModelFilterSet):
+
     class Meta:
         model = AutonomousSystem
         fields = [
@@ -56,6 +57,24 @@ class AutonomousSystemFilterSet(PeeringManagerModelFilterSet):
             qs_filter |= Q(asn__startswith=int(value.strip()))
 
         return queryset.filter(qs_filter)
+
+
+    def filter_json_field_value(self, queryset, name, value):
+        if not value.strip():
+            return queryset
+
+        return queryset.filter(**{name: value})
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.queryset.exists():
+            local_context_keys = {key for a in AutonomousSystem.objects.all().values_list('local_context_data', flat=True) if a for key in a.keys()}
+            for key in local_context_keys:
+                self.filters[f"local_context_data__{key}"] = django_filters.CharFilter(
+                    field_name=f"local_context_data__{key}"
+                )
+
+
 
 
 class BGPGroupFilterSet(OrganisationalModelFilterSet):
