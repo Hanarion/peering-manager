@@ -1,7 +1,6 @@
 import logging
 
 from django.db import models
-from django.urls import reverse
 from netfields import InetAddressField, MACAddressField, NetManager
 
 from peering_manager.models import PrimaryModel
@@ -84,9 +83,6 @@ class Connection(PrimaryModel):
 
     def get_status_colour(self) -> str:
         return ConnectionStatus.colours.get(self.status)
-
-    def get_absolute_url(self) -> str:
-        return reverse("net:connection", args=[self.pk])
 
     def link_to_peeringdb(self) -> NetworkIXLan | None:
         """

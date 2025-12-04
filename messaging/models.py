@@ -1,7 +1,6 @@
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from django.urls import reverse
 
 from peering_manager.jinja2 import render_jinja2
 from peering_manager.models import (
@@ -20,9 +19,6 @@ class ContactRole(OrganisationalModel):
     Functional role for a `Contact` assigned to an object.
     """
 
-    def get_absolute_url(self) -> str:
-        return reverse("messaging:contactrole", args=[self.pk])
-
 
 class Contact(PrimaryModel):
     name = models.CharField(max_length=100)
@@ -36,9 +32,6 @@ class Contact(PrimaryModel):
 
     def __str__(self) -> str:
         return self.name
-
-    def get_absolute_url(self) -> str:
-        return reverse("messaging:contact", args=[self.pk])
 
 
 class ContactAssignment(ChangeLoggedModel):
@@ -70,9 +63,6 @@ class Email(SynchronisedDataMixin, TemplateModel):
     # user more characters for templating and let the user to decide what he wants to
     # with this recommended limit, including not respecting it
     subject = models.CharField(max_length=512)
-
-    def get_absolute_url(self) -> str:
-        return reverse("messaging:email", args=[self.pk])
 
     def synchronise_data(self) -> None:
         self.template = self.data_file.data_as_string
