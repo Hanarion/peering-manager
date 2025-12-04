@@ -8,16 +8,8 @@ from net.models import Connection
 from utils.testing import APITestCase, APIViewTestCases
 
 from ..constants import *
-from ..enums import BGPSessionStatus, CommunityType, RoutingPolicyType
-from ..models import (
-    AutonomousSystem,
-    BGPGroup,
-    Community,
-    DirectPeeringSession,
-    InternetExchange,
-    InternetExchangePeeringSession,
-    RoutingPolicy,
-)
+from ..enums import *
+from ..models import *
 from .mocked_data import load_peeringdb_data, mocked_subprocess_popen
 
 
@@ -32,6 +24,7 @@ class AutonomousSystemTest(APIViewTestCases.View):
     brief_fields = [
         "id",
         "url",
+        "display_url",
         "display",
         "asn",
         "name",
@@ -111,7 +104,7 @@ class AutonomousSystemTest(APIViewTestCases.View):
 
 class BGPGroupTest(APIViewTestCases.View):
     model = BGPGroup
-    brief_fields = ["id", "url", "display", "name", "slug", "status"]
+    brief_fields = ["id", "url", "display_url", "display", "name", "slug", "status"]
     create_data = [
         {"name": "Test 1", "slug": "test-1"},
         {"name": "Test 2", "slug": "test-2"},
@@ -138,60 +131,9 @@ class BGPGroupTest(APIViewTestCases.View):
         self.assertHttpStatus(response, status.HTTP_202_ACCEPTED)
 
 
-class CommunityTest(APIViewTestCases.View):
-    model = Community
-    brief_fields = ["id", "url", "display", "name", "slug", "value", "type"]
-    create_data = [
-        {
-            "name": "Test1",
-            "slug": "test1",
-            "value": "64500:11",
-            "type": CommunityType.EGRESS,
-        },
-        {
-            "name": "Test2",
-            "slug": "test2",
-            "value": "64500:12",
-            "type": CommunityType.EGRESS,
-        },
-        {
-            "name": "Test3",
-            "slug": "test3",
-            "value": "64500:13",
-            "type": CommunityType.EGRESS,
-        },
-    ]
-    bulk_update_data = {"description": "Awesome community"}
-
-    @classmethod
-    def setUpTestData(cls):
-        Community.objects.bulk_create(
-            [
-                Community(
-                    name="Example 1",
-                    slug="example-1",
-                    value="64500:1",
-                    type=CommunityType.EGRESS,
-                ),
-                Community(
-                    name="Example 2",
-                    slug="example-2",
-                    value="64500:2",
-                    type=CommunityType.EGRESS,
-                ),
-                Community(
-                    name="Example 3",
-                    slug="example-3",
-                    value="64500:3",
-                    type=CommunityType.EGRESS,
-                ),
-            ]
-        )
-
-
 class DirectPeeringSessionTest(APIViewTestCases.View):
     model = DirectPeeringSession
-    brief_fields = ["id", "url", "display", "ip_address", "status"]
+    brief_fields = ["id", "url", "display_url", "display", "ip_address", "status"]
     bulk_update_data = {"status": BGPSessionStatus.DISABLED}
 
     @classmethod
@@ -204,6 +146,9 @@ class DirectPeeringSessionTest(APIViewTestCases.View):
             name="Private Peering", slug="private-peering"
         )
         connection = Connection.objects.create(vlan=2000)
+        routing_policy = RoutingPolicy.objects.create(
+            name="Import", slug="import", type=RoutingPolicyType.IMPORT, weight=0
+        )
         DirectPeeringSession.objects.bulk_create(
             [
                 DirectPeeringSession(
@@ -234,27 +179,28 @@ class DirectPeeringSessionTest(APIViewTestCases.View):
                 "local_autonomous_system": local_autonomous_system.pk,
                 "autonomous_system": autonomous_system.pk,
                 "relationship": relationship_private_peering.pk,
-                "ip_address": "198.51.100.1/32",
+                "ip_address": "192.0.2.1/32",
             },
             {
                 "local_autonomous_system": local_autonomous_system.pk,
                 "autonomous_system": autonomous_system.pk,
                 "relationship": relationship_private_peering.pk,
-                "ip_address": "198.51.100.2/32",
+                "ip_address": "192.0.2.2/32",
             },
             {
                 "local_autonomous_system": local_autonomous_system.pk,
                 "autonomous_system": autonomous_system.pk,
                 "relationship": relationship_private_peering.pk,
-                "ip_address": "198.51.100.3/32",
+                "ip_address": "192.0.2.3/32",
                 "connection": connection.pk,
+                "import_routing_policies": [routing_policy.pk],
             },
         ]
 
 
 class InternetExchangeTest(APIViewTestCases.View):
     model = InternetExchange
-    brief_fields = ["id", "url", "display", "name", "slug", "status"]
+    brief_fields = ["id", "url", "display_url", "display", "name", "slug", "status"]
     bulk_update_data = {"description": "Awesome IXP"}
 
     @classmethod
@@ -337,7 +283,15 @@ class InternetExchangeTest(APIViewTestCases.View):
 
 class InternetExchangePeeringSessionTest(APIViewTestCases.View):
     model = InternetExchangePeeringSession
-    brief_fields = ["id", "url", "display", "ip_address", "status", "is_route_server"]
+    brief_fields = [
+        "id",
+        "url",
+        "display_url",
+        "display",
+        "ip_address",
+        "status",
+        "is_route_server",
+    ]
     bulk_update_data = {"status": BGPSessionStatus.DISABLED}
 
     @classmethod
@@ -395,7 +349,7 @@ class InternetExchangePeeringSessionTest(APIViewTestCases.View):
 
 class RoutingPolicyTest(APIViewTestCases.View):
     model = RoutingPolicy
-    brief_fields = ["id", "url", "display", "name", "slug", "type"]
+    brief_fields = ["id", "url", "display_url", "display", "name", "slug", "type"]
     create_data = [
         {
             "name": "Test1",

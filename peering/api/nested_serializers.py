@@ -1,28 +1,31 @@
-from rest_framework import serializers
-
 from peering_manager.api.serializers import WritableNestedSerializer
 
 from ..models import (
     AutonomousSystem,
     BGPGroup,
-    Community,
     DirectPeeringSession,
     InternetExchange,
     InternetExchangePeeringSession,
     RoutingPolicy,
 )
 
+__all__ = (
+    "NestedAutonomousSystemSerializer",
+    "NestedBGPGroupSerializer",
+    "NestedDirectPeeringSessionSerializer",
+    "NestedInternetExchangePeeringSessionSerializer",
+    "NestedInternetExchangeSerializer",
+    "NestedRoutingPolicySerializer",
+)
+
 
 class NestedAutonomousSystemSerializer(WritableNestedSerializer):
-    url = serializers.HyperlinkedIdentityField(
-        view_name="peering-api:autonomoussystem-detail"
-    )
-
     class Meta:
         model = AutonomousSystem
         fields = [
             "id",
             "url",
+            "display_url",
             "display",
             "asn",
             "name",
@@ -32,56 +35,38 @@ class NestedAutonomousSystemSerializer(WritableNestedSerializer):
 
 
 class NestedBGPGroupSerializer(WritableNestedSerializer):
-    url = serializers.HyperlinkedIdentityField(view_name="peering-api:bgpgroup-detail")
-
     class Meta:
         model = BGPGroup
-        fields = ["id", "url", "display", "name", "slug", "status"]
-
-
-class NestedCommunitySerializer(WritableNestedSerializer):
-    url = serializers.HyperlinkedIdentityField(view_name="peering-api:community-detail")
-
-    class Meta:
-        model = Community
-        fields = ["id", "url", "display", "name", "slug", "value", "type"]
+        fields = ["id", "url", "display_url", "display", "name", "slug", "status"]
 
 
 class NestedDirectPeeringSessionSerializer(WritableNestedSerializer):
-    url = serializers.HyperlinkedIdentityField(
-        view_name="peering-api:directpeeringsession-detail"
-    )
-
     class Meta:
         model = DirectPeeringSession
-        fields = ["id", "url", "display", "ip_address", "status"]
+        fields = ["id", "url", "display_url", "display", "ip_address", "status"]
 
 
 class NestedInternetExchangeSerializer(WritableNestedSerializer):
-    url = serializers.HyperlinkedIdentityField(
-        view_name="peering-api:internetexchange-detail"
-    )
-
     class Meta:
         model = InternetExchange
-        fields = ["id", "url", "display", "name", "slug", "status"]
+        fields = ["id", "url", "display_url", "display", "name", "slug", "status"]
 
 
 class NestedInternetExchangePeeringSessionSerializer(WritableNestedSerializer):
-    url = serializers.HyperlinkedIdentityField(
-        view_name="peering-api:internetexchangepeeringsession-detail"
-    )
-
     class Meta:
         model = InternetExchangePeeringSession
-        fields = ["id", "url", "display", "ip_address", "status", "is_route_server"]
+        fields = [
+            "id",
+            "url",
+            "display_url",
+            "display",
+            "ip_address",
+            "status",
+            "is_route_server",
+        ]
 
 
 class NestedRoutingPolicySerializer(WritableNestedSerializer):
-    url = serializers.HyperlinkedIdentityField(
-        view_name="peering-api:routingpolicy-detail"
-    )
-
     class Meta:
         model = RoutingPolicy
-        fields = ["id", "url", "display", "name", "slug", "type"]
+        fields = ["id", "url", "display_url", "display", "name", "slug", "type"]

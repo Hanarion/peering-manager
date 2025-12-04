@@ -25,7 +25,7 @@ HOSTNAME = platform.node()
 BASE_DIR = Path(__file__).resolve().parent.parent
 DOCS_DIR = BASE_DIR / "docs"
 
-VERSION = "1.9.7-dev"
+VERSION = "1.10.2-dev"
 
 major, minor, _ = platform.python_version_tuple()
 if (int(major), int(minor)) < (3, 10):
@@ -80,11 +80,13 @@ LOGGING = getattr(configuration, "LOGGING", {})
 REDIS = getattr(configuration, "REDIS", {})
 RQ_DEFAULT_TIMEOUT = getattr(configuration, "RQ_DEFAULT_TIMEOUT", 300)
 CACHE_BGP_DETAIL_TIMEOUT = getattr(configuration, "CACHE_BGP_DETAIL_TIMEOUT", 900)
+CACHE_PREFIX_LIST_TIMEOUT = getattr(configuration, "CACHE_PREFIX_LIST_TIMEOUT", 3600)
 CHANGELOG_RETENTION = getattr(configuration, "CHANGELOG_RETENTION", 90)
 JOB_RETENTION = getattr(configuration, "JOB_RETENTION", 90)
 LOGIN_PERSISTENCE = getattr(configuration, "LOGIN_PERSISTENCE", False)
 LOGIN_REQUIRED = getattr(configuration, "LOGIN_REQUIRED", False)
 LOGIN_TIMEOUT = getattr(configuration, "LOGIN_TIMEOUT", None)
+LOGIN_FORM_HIDDEN = getattr(configuration, "LOGIN_FORM_HIDDEN", False)
 BANNER_LOGIN = getattr(configuration, "BANNER_LOGIN", "")
 NAPALM_USERNAME = getattr(configuration, "NAPALM_USERNAME", "")
 NAPALM_PASSWORD = getattr(configuration, "NAPALM_PASSWORD", "")
@@ -168,7 +170,7 @@ BGPQ3_SOURCES = getattr(
 BGPQ3_ARGS = getattr(
     configuration,
     "BGPQ3_ARGS",
-    {"ipv6": ["-r", "16", "-R", "48"], "ipv4": ["-r", "8", "-R", "24"]},
+    {"ipv6": ["-A", "-r", "16", "-R", "48"], "ipv4": ["-A", "-r", "8", "-R", "24"]},
 )
 BGPQ4_KEEP_SOURCE_IN_SET = getattr(configuration, "BGPQ4_KEEP_SOURCE_IN_SET", False)
 JINJA2_TEMPLATE_EXTENSIONS = getattr(configuration, "JINJA2_TEMPLATE_EXTENSIONS", [])
@@ -525,9 +527,9 @@ if METRICS_ENABLED:
     PROMETHEUS_EXPORT_MIGRATIONS = False
     INSTALLED_APPS.append("django_prometheus")
     MIDDLEWARE = [
-        "django_prometheus.middleware.PrometheusBeforeMiddleware",
+        "peering_manager.middleware.PrometheusBeforeMiddleware",
         *MIDDLEWARE,
-        "django_prometheus.middleware.PrometheusAfterMiddleware",
+        "peering_manager.middleware.PrometheusAfterMiddleware",
     ]
     configuration.DATABASE.update(
         {"ENGINE": "django_prometheus.db.backends.postgresql"}

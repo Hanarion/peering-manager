@@ -1,8 +1,13 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from django import forms
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from taggit.forms import TagField
 
-from bgp.models import Relationship
+from bgp.models import Community, Relationship
 from devices.enums import DeviceStatus
 from devices.models import Router
 from extras.models import IXAPI
@@ -30,19 +35,20 @@ from .enums import (
     BGPGroupStatus,
     BGPSessionStatus,
     BGPState,
-    CommunityType,
     IPFamily,
     RoutingPolicyType,
 )
 from .models import (
     AutonomousSystem,
     BGPGroup,
-    Community,
     DirectPeeringSession,
     InternetExchange,
     InternetExchangePeeringSession,
     RoutingPolicy,
 )
+
+if TYPE_CHECKING:
+    from ipaddress import IPv4Interface, IPv6Interface
 
 
 class AutonomousSystemForm(PeeringManagerModelForm):
@@ -89,6 +95,16 @@ class AutonomousSystemForm(PeeringManagerModelForm):
                 "ipv4_max_prefixes_peeringdb_sync",
             ),
         ),
+        (
+            "IRR Objects Retrieval",
+            (
+                "retrieve_prefixes",
+                "retrieve_as_list",
+                "irr_sources_override",
+                "irr_ipv6_prefixes_args_override",
+                "irr_ipv4_prefixes_args_override",
+            ),
+        ),
         ("Config Context", ("local_context_data",)),
     )
 
@@ -110,6 +126,11 @@ class AutonomousSystemForm(PeeringManagerModelForm):
             "communities",
             "local_context_data",
             "comments",
+            "retrieve_prefixes",
+            "retrieve_as_list",
+            "irr_sources_override",
+            "irr_ipv6_prefixes_args_override",
+            "irr_ipv4_prefixes_args_override",
             "affiliated",
             "tags",
         )
@@ -118,11 +139,30 @@ class AutonomousSystemForm(PeeringManagerModelForm):
             "irr_as_set_peeringdb_sync": "IRR AS-SET",
             "ipv6_max_prefixes_peeringdb_sync": "IPv6 max prefixes",
             "ipv4_max_prefixes_peeringdb_sync": "IPv4 max prefixes",
+            "irr_sources_override": "IRR sources override",
+            "irr_ipv6_prefixes_args_override": "IRR IPv6 prefixes override",
+            "irr_ipv4_prefixes_args_override": "IRR IPv4 prefixes override",
         }
         help_texts = {
             "asn": "BGP autonomous system number (32-bit capable)",
             "name": "Full name of the AS",
             "affiliated": "Check if you own/manage this AS",
+            "retrieve_prefixes": "Retrieve and cache prefixes from IRR sources",
+            "retrieve_as_list": "Retrieve and cache AS list from IRR sources",
+            "irr_sources_override": (
+                "Override the IRR sources to use for this AS; if empty, "
+                f"<code>{settings.BGPQ3_SOURCES}</code> will be used"
+            ),
+            "irr_ipv6_prefixes_args_override": (
+                "Override the arguments to pass to bgpq3/bgpq4 for IPv6 prefixes; "
+                f"if empty, <code>{' '.join(settings.BGPQ3_ARGS['ipv6'])}</code> "
+                "will be used"
+            ),
+            "irr_ipv4_prefixes_args_override": (
+                "Override the arguments to pass to bgpq3/bgpq4 for IPv4 prefixes; "
+                f"if empty, <code>{' '.join(settings.BGPQ3_ARGS['ipv4'])}</code> "
+                "will be used"
+            ),
         }
 
 
@@ -242,78 +282,13 @@ class BGPGroupFilterForm(PeeringManagerModelFilterSetForm):
     tag = TagFilterField(model)
 
 
-class CommunityForm(PeeringManagerModelForm):
-    slug = SlugField(max_length=255)
-    type = forms.ChoiceField(
-        required=False,
-        choices=add_blank_choice(CommunityType),
-        widget=StaticSelect,
-        help_text="Optional, Ingress for received routes, Egress for advertised routes",
-    )
-    local_context_data = JSONField(required=False)
-    tags = TagField(required=False)
-    fieldsets = (
-        (
-            "Community",
-            (
-                "name",
-                "slug",
-                "description",
-                "type",
-                "value",
-            ),
-        ),
-        ("Config Context", ("local_context_data",)),
-    )
-
-    class Meta:
-        model = Community
-
-        fields = (
-            "name",
-            "slug",
-            "description",
-            "type",
-            "value",
-            "local_context_data",
-            "tags",
-        )
-        help_texts = {
-            "value": 'Community (<a target="_blank" href="https://tools.ietf.org/html/rfc1997">RFC1997</a>), Extended Community (<a target="_blank" href="https://tools.ietf.org/html/rfc4360">RFC4360</a>) or Large Community (<a target="_blank" href="https://tools.ietf.org/html/rfc8092">RFC8092</a>)'
-        }
-
-
-class CommunityBulkEditForm(PeeringManagerModelBulkEditForm):
-    type = forms.ChoiceField(
-        required=False,
-        choices=add_blank_choice(CommunityType),
-        widget=StaticSelect,
-    )
-    local_context_data = JSONField(required=False)
-
-    model = Community
-    nullable_fields = ("type", "description", "local_context_data")
-
-
-class CommunityFilterForm(PeeringManagerModelFilterSetForm):
-    model = Community
-    type = forms.MultipleChoiceField(
-        required=False,
-        choices=add_blank_choice(CommunityType),
-        widget=StaticSelectMultiple,
-    )
-    tag = TagFilterField(model)
-
-
 class DirectPeeringSessionForm(PeeringManagerModelForm):
     local_autonomous_system = DynamicModelChoiceField(
-        queryset=AutonomousSystem.objects.defer("prefixes"),
+        queryset=AutonomousSystem.objects.all(),
         query_params={"affiliated": True},
         label="Local AS",
     )
-    autonomous_system = DynamicModelChoiceField(
-        queryset=AutonomousSystem.objects.defer("prefixes")
-    )
+    autonomous_system = DynamicModelChoiceField(queryset=AutonomousSystem.objects.all())
     bgp_group = DynamicModelChoiceField(
         required=False, queryset=BGPGroup.objects.all(), label="BGP Group"
     )
@@ -415,18 +390,11 @@ class DirectPeeringSessionForm(PeeringManagerModelForm):
     def clean(self):
         cleaned_data = super().clean()
 
-        ip_src = cleaned_data["local_ip_address"]
-        ip_dst = cleaned_data["ip_address"]
+        # Invalid IP address, let the field validator handle it
+        if "ip_address" not in cleaned_data:
+            return
 
-        # Make sure that both local qnd remote IP addresses belong in the same subnet
-        if (
-            cleaned_data["multihop_ttl"] == 1
-            and ip_src
-            and (ip_src.network != ip_dst.network)
-        ):
-            raise ValidationError(
-                f"{ip_src} and {ip_dst} don't belong to the same subnet."
-            )
+        ip_dst: IPv6Interface | IPv4Interface = cleaned_data["ip_address"]
 
         # Make sure that routing policies are compatible (address family)
         for policy in cleaned_data["import_routing_policies"].union(
@@ -441,7 +409,7 @@ class DirectPeeringSessionForm(PeeringManagerModelForm):
 class DirectPeeringSessionBulkEditForm(PeeringManagerModelBulkEditForm):
     local_autonomous_system = DynamicModelChoiceField(
         required=False,
-        queryset=AutonomousSystem.objects.defer("prefixes"),
+        queryset=AutonomousSystem.objects.all(),
         query_params={"affiliated": True},
         label="Local AS",
     )
@@ -496,14 +464,14 @@ class DirectPeeringSessionFilterForm(PeeringManagerModelFilterSetForm):
     model = DirectPeeringSession
     local_autonomous_system_id = DynamicModelChoiceField(
         required=False,
-        queryset=AutonomousSystem.objects.defer("prefixes"),
+        queryset=AutonomousSystem.objects.all(),
         query_params={"affiliated": True},
         to_field_name="pk",
         label="Local AS",
     )
     autonomous_system_id = DynamicModelChoiceField(
         required=False,
-        queryset=AutonomousSystem.objects.defer("prefixes"),
+        queryset=AutonomousSystem.objects.all(),
         to_field_name="pk",
         label="Autonomous system",
     )
@@ -562,7 +530,7 @@ class InternetExchangeForm(PeeringManagerModelForm):
         required=False, choices=DeviceStatus, widget=StaticSelect
     )
     local_autonomous_system = DynamicModelChoiceField(
-        queryset=AutonomousSystem.objects.defer("prefixes"),
+        queryset=AutonomousSystem.objects.all(),
         query_params={"affiliated": True},
         label="Local AS",
     )
@@ -621,7 +589,7 @@ class InternetExchangeBulkEditForm(PeeringManagerModelBulkEditForm):
     )
     local_autonomous_system = DynamicModelChoiceField(
         required=False,
-        queryset=AutonomousSystem.objects.defer("prefixes"),
+        queryset=AutonomousSystem.objects.all(),
         query_params={"affiliated": True},
         label="Local AS",
     )
@@ -675,7 +643,7 @@ class InternetExchangeFilterForm(PeeringManagerModelFilterSetForm):
     )
     local_autonomous_system_id = DynamicModelChoiceField(
         required=False,
-        queryset=AutonomousSystem.objects.defer("prefixes"),
+        queryset=AutonomousSystem.objects.all(),
         query_params={"affiliated": True},
         label="Local AS",
     )
@@ -741,9 +709,7 @@ class InternetExchangePeeringSessionBulkEditForm(PeeringManagerModelBulkEditForm
 
 
 class InternetExchangePeeringSessionForm(PeeringManagerModelForm):
-    autonomous_system = DynamicModelChoiceField(
-        queryset=AutonomousSystem.objects.defer("prefixes")
-    )
+    autonomous_system = DynamicModelChoiceField(queryset=AutonomousSystem.objects.all())
     internet_exchange = DynamicModelChoiceField(
         required=False, queryset=InternetExchange.objects.all(), label="IXP"
     )
@@ -849,7 +815,7 @@ class InternetExchangePeeringSessionFilterForm(PeeringManagerModelFilterSetForm)
     model = InternetExchangePeeringSession
     autonomous_system_id = DynamicModelMultipleChoiceField(
         required=False,
-        queryset=AutonomousSystem.objects.defer("prefixes"),
+        queryset=AutonomousSystem.objects.all(),
         to_field_name="pk",
         label="Autonomous system",
     )
@@ -874,6 +840,16 @@ class InternetExchangePeeringSessionFilterForm(PeeringManagerModelFilterSetForm)
     is_route_server = forms.NullBooleanField(
         required=False,
         label="Route server",
+        widget=StaticSelect(choices=BOOLEAN_WITH_BLANK_CHOICES),
+    )
+    exists_in_peeringdb = forms.NullBooleanField(
+        required=False,
+        label="In PeeringDB",
+        widget=StaticSelect(choices=BOOLEAN_WITH_BLANK_CHOICES),
+    )
+    is_abandoned = forms.NullBooleanField(
+        required=False,
+        label="Is Abandoned",
         widget=StaticSelect(choices=BOOLEAN_WITH_BLANK_CHOICES),
     )
     bgp_state = forms.MultipleChoiceField(

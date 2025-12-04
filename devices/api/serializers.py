@@ -1,10 +1,8 @@
 from rest_framework import serializers
 
-from peering.api.nested_serializers import (
-    NestedAutonomousSystemSerializer,
-    NestedCommunitySerializer,
-)
-from peering.models import Community
+from bgp.api.serializers import NestedCommunitySerializer
+from bgp.models import Community
+from peering.api.nested_serializers import NestedAutonomousSystemSerializer
 from peering_manager.api.fields import ChoiceField, SerializedPKRelatedField
 from peering_manager.api.serializers import PeeringManagerModelSerializer
 
@@ -20,6 +18,8 @@ class ConfigurationSerializer(PeeringManagerModelSerializer):
         model = Configuration
         fields = [
             "id",
+            "url",
+            "display_url",
             "display",
             "name",
             "description",
@@ -38,6 +38,7 @@ class PlatformSerializer(PeeringManagerModelSerializer):
         model = Platform
         fields = [
             "id",
+            "url",
             "display",
             "name",
             "slug",
@@ -68,6 +69,8 @@ class RouterSerializer(PeeringManagerModelSerializer):
         model = Router
         fields = [
             "id",
+            "url",
+            "display_url",
             "display",
             "name",
             "hostname",
@@ -81,6 +84,7 @@ class RouterSerializer(PeeringManagerModelSerializer):
             "local_autonomous_system",
             "netbox_device_id",
             "local_context_data",
+            "config_context",
             "napalm_username",
             "napalm_password",
             "napalm_timeout",

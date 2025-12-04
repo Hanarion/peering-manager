@@ -1,23 +1,38 @@
 import ipaddress
 import logging
+from typing import Any
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericRelation
+from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.db.models import Q
+from django.forms import ValidationError
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.safestring import mark_safe
 from netfields import InetAddressField
 
 from net.models import Connection
-from peering_manager.models import OrganisationalModel, PrimaryModel
+from peering_manager.models import JournalingMixin, OrganisationalModel, PrimaryModel
 from peeringdb.functions import get_shared_facilities, get_shared_internet_exchanges
-from peeringdb.models import IXLanPrefix, Network, NetworkContact, NetworkIXLan
+from peeringdb.models import (
+    HiddenPeer,
+    IXLanPrefix,
+    Network,
+    NetworkContact,
+    NetworkIXLan,
+)
 
-from ..enums import BGPState, CommunityType, IPFamily, RoutingPolicyType
-from ..fields import ASNField, CommunityField
-from ..functions import call_irr_as_set_resolver, get_community_kind, parse_irr_as_set
+from ..enums import BGPState, IPFamily, RoutingPolicyType
+from ..fields import ASNField
+from ..functions import (
+    UnresolvableIRRObjectError,
+    call_irr_as_set_as_list_resolver,
+    call_irr_as_set_resolver,
+    parse_irr_as_set,
+    validate_ip_address_not_network_nor_broadcast,
+)
 from .abstracts import *
 from .mixins import *
 
@@ -25,7 +40,6 @@ __all__ = (
     "AutonomousSystem",
     "BGPGroup",
     "BGPSession",
-    "Community",
     "DirectPeeringSession",
     "InternetExchange",
     "InternetExchangePeeringSession",
@@ -35,7 +49,12 @@ __all__ = (
 logger = logging.getLogger("peering.manager.peering")
 
 
-class AutonomousSystem(PrimaryModel, PolicyMixin):
+class AutonomousSystemManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().defer("prefixes", "as_list")
+
+
+class AutonomousSystem(PrimaryModel, PolicyMixin, JournalingMixin):
     asn = ASNField(unique=True, verbose_name="ASN")
     name = models.CharField(max_length=200)
     name_peeringdb_sync = models.BooleanField(default=True)
@@ -57,10 +76,38 @@ class AutonomousSystem(PrimaryModel, PolicyMixin):
     export_routing_policies = models.ManyToManyField(
         "RoutingPolicy", blank=True, related_name="%(class)s_export_routing_policies"
     )
-    communities = models.ManyToManyField("Community", blank=True)
+    communities = models.ManyToManyField("bgp.Community", blank=True)
     prefixes = models.JSONField(blank=True, null=True, editable=False)
+    retrieve_prefixes = models.BooleanField(blank=True, default=True)
+    as_list = ArrayField(
+        models.PositiveIntegerField(), default=list, blank=True, editable=False
+    )
+    retrieve_as_list = models.BooleanField(blank=True, default=True)
+    irr_sources_override = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="IRR sources override",
+        help_text=(
+            "Override for BGPQ3_SOURCES, use a comma separated list of "
+            "sources, e.g. RIPE,RADB"
+        ),
+    )
+    irr_ipv6_prefixes_args_override = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="IRR IPv6 prefix arguments override",
+        help_text="Override for BGPQ3_ARGS['ipv6']",
+    )
+    irr_ipv4_prefixes_args_override = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="IRR IPv4 prefix arguments override",
+        help_text="Override for BGPQ3_ARGS['ipv4']",
+    )
     affiliated = models.BooleanField(default=False)
     contacts = GenericRelation(to="messaging.ContactAssignment")
+
+    objects = AutonomousSystemManager()
 
     class Meta:
         ordering = ["asn", "affiliated"]
@@ -123,7 +170,7 @@ class AutonomousSystem(PrimaryModel, PolicyMixin):
 
         return autonomous_system
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"AS{self.asn} - {self.name}"
 
     def export_policies(self):
@@ -131,9 +178,6 @@ class AutonomousSystem(PrimaryModel, PolicyMixin):
 
     def import_policies(self):
         return self.import_routing_policies.all()
-
-    def get_absolute_url(self):
-        return reverse("peering:autonomoussystem_view", args=[self.pk])
 
     def get_internet_exchange_peering_sessions_list_url(self):
         return reverse(
@@ -342,7 +386,7 @@ class AutonomousSystem(PrimaryModel, PolicyMixin):
         except Exception:
             return False
 
-    def retrieve_irr_as_set_prefixes(self):
+    def retrieve_irr_as_set_prefixes(self) -> dict[str, list[dict[str, Any]]]:
         """
         Returns a prefix list for this AS' IRR AS-SET. If none is provided the
         function will try to look for a prefix list based on the AS number.
@@ -351,42 +395,36 @@ class AutonomousSystem(PrimaryModel, PolicyMixin):
         expected to be slow due to network operations and depending on the size of the
         data to process.
         """
-        fallback = False
-        as_sets = parse_irr_as_set(self.asn, self.irr_as_set)
         prefixes = {"ipv6": [], "ipv4": []}
+
+        if not self.retrieve_prefixes:
+            return prefixes
 
         try:
             # For each AS-SET try getting IPv6 and IPv4 prefixes
-            for as_set_source, as_set in as_sets:
+            for source, as_set in parse_irr_as_set(
+                asn=self.asn, irr_as_set=self.irr_as_set
+            ):
                 prefixes["ipv6"].extend(
                     call_irr_as_set_resolver(
-                        irr_as_set=as_set,
-                        irr_as_set_source=as_set_source,
+                        as_set=as_set,
+                        source=source,
                         address_family=6,
+                        irr_sources_override=self.irr_sources_override,
+                        irr_ipv6_prefixes_args_override=self.irr_ipv6_prefixes_args_override,
                     )
                 )
                 prefixes["ipv4"].extend(
                     call_irr_as_set_resolver(
-                        irr_as_set=as_set,
-                        irr_as_set_source=as_set_source,
+                        as_set=as_set,
+                        source=source,
                         address_family=4,
+                        irr_sources_override=self.irr_sources_override,
+                        irr_ipv4_prefixes_args_override=self.irr_ipv4_prefixes_args_override,
                     )
                 )
-        except ValueError:
-            # Error parsing AS-SETs
-            fallback = True
-
-        # If fallback is triggered or no prefixes found, try prefix lookup by ASN
-        if fallback or (not prefixes["ipv6"] and not prefixes["ipv4"]):
-            logger.debug(
-                f"falling back to AS number lookup to search for AS{self.asn} prefixes"
-            )
-            prefixes["ipv6"].extend(
-                call_irr_as_set_resolver(f"AS{self.asn}", address_family=6)
-            )
-            prefixes["ipv4"].extend(
-                call_irr_as_set_resolver(f"AS{self.asn}", address_family=4)
-            )
+        except UnresolvableIRRObjectError:
+            pass
 
         return prefixes
 
@@ -403,12 +441,63 @@ class AutonomousSystem(PrimaryModel, PolicyMixin):
         prefixes = (
             self.prefixes if self.prefixes else self.retrieve_irr_as_set_prefixes()
         )
+        self.save(update_fields=["prefixes"])
 
         if address_family == 6:
             return prefixes["ipv6"]
         if address_family == 4:
             return prefixes["ipv4"]
         return prefixes
+
+    def retrieve_irr_as_set_as_list(self) -> list[int]:
+        """
+        Returns a list of ASN that are included in this AS' AS-SETs. If no AS-SET is
+        defined, the list will be empty.
+
+        This function will actually retrieve data from IRR online sources. It is
+        expected to be slow due to network operations and depending on the size of the
+        data to process.
+        """
+        if not self.irr_as_set or not self.retrieve_as_list:
+            return []
+
+        as_list: list[int] = []
+        for source, as_set in parse_irr_as_set(
+            asn=self.asn, irr_as_set=self.irr_as_set
+        ):
+            as_list.extend(
+                call_irr_as_set_as_list_resolver(
+                    first_as=self.asn,
+                    as_set=as_set,
+                    source=source,
+                    irr_sources_override=self.irr_sources_override,
+                )
+            )
+
+        return as_list
+
+    def get_irr_as_set_as_list(self) -> list[int]:
+        """
+        Returns a list of ASN that are included in this AS' AS-SETs. If no AS-SET is
+        defined, the list will be empty.
+
+        The stored database value will be used if it exists. If not, the value will be
+        retrieved from the IRR online sources and saved in the database.
+        """
+        if not self.as_list:
+            self.as_list = self.retrieve_irr_as_set_as_list()
+            self.save(update_fields=["as_list"])
+
+        return self.as_list
+
+    def update_data_from_irr(self) -> None:
+        """
+        Update prefixes and AS list for this autonomous system from IRR sources.
+        """
+        self.prefixes = self.retrieve_irr_as_set_prefixes()
+        self.as_list = self.retrieve_irr_as_set_as_list()
+
+        self.save(update_fields=["prefixes", "as_list"])
 
     def get_contact_email_addresses(self):
         """
@@ -478,11 +567,8 @@ class BGPGroup(AbstractGroup):
         ordering = ["name", "slug"]
         verbose_name = "BGP group"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
-
-    def get_absolute_url(self):
-        return reverse("peering:bgpgroup_view", args=[self.pk])
 
     def get_peering_sessions_list_url(self):
         return reverse("peering:bgpgroup_peering_sessions", args=[self.pk])
@@ -496,46 +582,6 @@ class BGPGroup(AbstractGroup):
         return Router.objects.filter(
             pk__in=self.get_peering_sessions().values_list("router", flat=True)
         )
-
-
-class Community(OrganisationalModel):
-    value = CommunityField(max_length=50)
-    type = models.CharField(max_length=50, choices=CommunityType, blank=True, null=True)
-
-    class Meta:
-        verbose_name_plural = "communities"
-        ordering = ["value", "name"]
-
-    @property
-    def kind(self) -> str | None:
-        if not settings.VALIDATE_BGP_COMMUNITY_VALUE:
-            return None
-        try:
-            return get_community_kind(self.value)
-        except ValueError:
-            return None
-
-    def __str__(self):
-        return self.name
-
-    def get_absolute_url(self):
-        return reverse("peering:community_view", args=[self.pk])
-
-    def get_type_html(self, display_name=False):
-        if self.type == CommunityType.EGRESS:
-            badge_type = "text-bg-primary"
-            text = self.get_type_display()
-        elif self.type == CommunityType.INGRESS:
-            badge_type = "text-bg-info"
-            text = self.get_type_display()
-        else:
-            badge_type = "text-bg-secondary"
-            text = "Not set"
-
-        if display_name:
-            text = self.name
-
-        return mark_safe(f'<span class="badge {badge_type}">{text}</span>')
 
 
 class DirectPeeringSession(BGPSession):
@@ -579,11 +625,36 @@ class DirectPeeringSession(BGPSession):
             "ip_address",
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.relationship} - AS{self.autonomous_system.asn} - IP {self.ip_address}"
 
-    def get_absolute_url(self):
-        return reverse("peering:directpeeringsession_view", args=[self.pk])
+    def clean(self):
+        super().clean()
+
+        # Invalid IP address, let the field validator handle it
+        if not self.ip_address:
+            return
+
+        ip_dst = ipaddress.ip_interface(self.ip_address)
+        validate_ip_address_not_network_nor_broadcast(value=ip_dst)
+
+        if not self.local_ip_address:
+            return
+
+        ip_src = ipaddress.ip_interface(self.local_ip_address)
+
+        # Make sure that local and remote IP addresses are not the same
+        if ip_src == ip_dst:
+            raise ValidationError(
+                f"Local IP address {ip_src} cannot be the same as remote IP address {ip_dst}."
+            )
+
+        if self.multihop_ttl == 1 and ip_src.network != ip_dst.network:
+            raise ValidationError(
+                f"{ip_src} and {ip_dst} don't belong to the same subnet."
+            )
+
+        validate_ip_address_not_network_nor_broadcast(value=ip_src)
 
     def poll(self):
         if not self.router:
@@ -661,11 +732,8 @@ class InternetExchange(AbstractGroup):
 
         return prefixes
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
-
-    def get_absolute_url(self):
-        return reverse("peering:internetexchange_view", args=[self.pk])
 
     def get_peering_sessions_list_url(self):
         return reverse("peering:internetexchange_peering_sessions", args=[self.pk])
@@ -751,7 +819,16 @@ class InternetExchange(AbstractGroup):
             )
         )
 
-    def get_available_peers(self):
+    def get_hidden_peers(self):
+        """
+        Return all potential peers that are hidden on this IXP.
+        """
+        return HiddenPeer.objects.filter(
+            Q(peeringdb_ixlan=self.peeringdb_ixlan)
+            & (Q(until__isnull=True) | Q(until__gt=timezone.now()))
+        )
+
+    def get_available_peers(self, show_hidden=False):
         """
         Finds available peers for the AS connected to this IX.
         """
@@ -771,10 +848,20 @@ class InternetExchange(AbstractGroup):
             )
         # Intersect all lists to find common sessions, these sessions can be excluded
         # from the lookup performed after this
-        ip_addresses = list(set.intersection(*map(set, ip_addresses_per_connection)))
+        ip_addresses = (
+            list(set.intersection(*map(set, ip_addresses_per_connection)))
+            if ip_addresses_per_connection
+            else []
+        )
+
+        hidden_peer_asn = [self.local_autonomous_system.asn]
+        if not show_hidden:
+            hidden_peer_asn += list(
+                self.get_hidden_peers().values_list("peeringdb_network__asn", flat=True)
+            )
 
         return NetworkIXLan.objects.filter(
-            ~Q(asn=self.local_autonomous_system.asn)
+            ~Q(asn__in=hidden_peer_asn)
             & Q(ixlan=self.peeringdb_ixlan)
             & (
                 (Q(ipaddr6__isnull=False) & ~Q(ipaddr6__in=ip_addresses))
@@ -940,8 +1027,7 @@ class InternetExchangePeeringSession(BGPSession):
     @property
     def is_abandoned(self):
         """
-        Returns `True` if a session is considered as abandoned. Returns
-        `False` otherwise.
+        Returns whether a session is considered as abandoned.
 
         A session is *not* considered as abandoned if it matches one of the following
         criteria:
@@ -1001,13 +1087,10 @@ class InternetExchangePeeringSession(BGPSession):
 
         return results
 
-    def __str__(self):
+    def __str__(self) -> str:
         if not self.ixp_connection:
             return f"AS{self.autonomous_system.asn} - IP {self.ip_address}"
         return f"{self.ixp_connection.internet_exchange_point.name} - AS{self.autonomous_system.asn} - IP {self.ip_address}"
-
-    def get_absolute_url(self):
-        return reverse("peering:internetexchangepeeringsession_view", args=[self.pk])
 
     def poll(self):
         if not self.ixp_connection.router:
@@ -1042,17 +1125,14 @@ class RoutingPolicy(OrganisationalModel):
     address_family = models.PositiveSmallIntegerField(
         default=IPFamily.ALL, choices=IPFamily
     )
-    communities = models.ManyToManyField("Community", blank=True)
+    communities = models.ManyToManyField("bgp.Community", blank=True)
 
     class Meta:
         verbose_name_plural = "routing policies"
         ordering = ["-weight", "name"]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
-
-    def get_absolute_url(self):
-        return reverse("peering:routingpolicy_view", args=[self.pk])
 
     def get_type_html(self, display_name=False):
         if self.type == RoutingPolicyType.EXPORT:

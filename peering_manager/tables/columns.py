@@ -11,7 +11,8 @@ from django.urls import reverse
 from django.utils.safestring import mark_safe
 from django_tables2.columns import library
 
-from utils.functions import content_type_identifier, content_type_name, get_viewname
+from utils.functions import content_type_identifier, content_type_name
+from utils.views import get_viewname
 
 __all__ = (
     "ActionsColumn",
@@ -22,6 +23,7 @@ __all__ = (
     "ContentTypesColumn",
     "DateTimeColumn",
     "LinkedCountColumn",
+    "MarkdownColumn",
     "SelectColumn",
     "TagColumn",
     "ToggleColumn",
@@ -93,7 +95,9 @@ class ActionsColumn(tables.Column):
 
     def render(self, record, table, **kwargs):
         # Skip dummy records (no PK) or those with no actions
-        if not getattr(record, "pk", None) or not self.actions:
+        if (
+            not getattr(record, "pk", None) or not self.actions
+        ) and not self.extra_buttons:
             return ""
 
         model = table.Meta.model
@@ -131,7 +135,7 @@ class ActionsColumn(tables.Column):
                 f'<span class="btn-group">'
                 f"  {button}"
                 f'  <a class="btn btn-sm btn-{dropdown_class} dropdown-toggle dropdown-toggle-split" type="button" data-bs-toggle="dropdown" style="padding-left: 2px">'
-                f'  <span class="sr-only">Toggle Dropdown</span></a>'
+                f'  <span class="visually-hidden">Toggle Dropdown</span></a>'
                 f'  <ul class="dropdown-menu">{"".join(dropdown_links)}</ul>'
                 f"</span>"
             )
@@ -141,7 +145,7 @@ class ActionsColumn(tables.Column):
             html += (
                 f'<span class="btn-group dropdown">'
                 f'  <a class="btn btn-sm btn-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">'
-                f'  <span class="sr-only">Toggle Dropdown</span></a>'
+                f'  <span class="visually-hidden">Toggle Dropdown</span></a>'
                 f'  <ul class="dropdown-menu">{"".join(dropdown_links)}</ul>'
                 f"</span>"
             )
@@ -313,6 +317,27 @@ class LinkedCountColumn(tables.Column):
                 )
             return mark_safe(f'<a href="{url}">{value}</a>')
         return value
+
+    def value(self, value):
+        return value
+
+
+class MarkdownColumn(tables.TemplateColumn):
+    """
+    Render a Markdown string as a column.
+    """
+
+    template_code = """
+    {% load helpers %}
+    {% if value %}
+    {{ value|markdown }}
+    {% else %}
+    &mdash;
+    {% endif %}
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(template_code=self.template_code, **kwargs)
 
     def value(self, value):
         return value

@@ -1,6 +1,5 @@
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.urls import reverse
 
 from peering_manager.models import OrganisationalModel
 
@@ -31,6 +30,3 @@ class BFD(OrganisationalModel):
 
     class Meta:
         verbose_name = "BFD configuration"
-
-    def get_absolute_url(self):
-        return reverse("net:bfd_view", args=[self.pk])

@@ -9,18 +9,19 @@ from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
 
+from bgp.models import Community
 from net.models import BFD, Connection
 from peering.enums import BGPState
 from peering.models import (
     AutonomousSystem,
     BGPGroup,
-    Community,
     DirectPeeringSession,
     InternetExchange,
     InternetExchangePeeringSession,
     RoutingPolicy,
 )
 from peering_manager.models import (
+    JobsMixin,
     OrganisationalModel,
     PrimaryModel,
     PushedDataMixin,
@@ -35,13 +36,10 @@ __all__ = ("Configuration", "Platform", "Router")
 
 
 class Configuration(SynchronisedDataMixin, TemplateModel):
-    def get_absolute_url(self):
-        return reverse("devices:configuration_view", args=[self.pk])
-
-    def synchronise_data(self):
+    def synchronise_data(self) -> None:
         self.template = self.data_file.data_as_string
 
-    def render(self, context):
+    def render(self, context) -> str:
         """
         Render the template using Jinja2.
         """
@@ -81,10 +79,10 @@ class Platform(OrganisationalModel):
         help_text="Algorithm to cipher password in configuration",
     )
 
-    def get_absolute_url(self):
+    def get_absolute_url(self) -> str:
         return f"{reverse('devices:router_list')}?platform_id={self.pk}"
 
-    def encrypt_password(self, password):
+    def encrypt_password(self, password) -> str:
         """
         Encrypts a password using the defined algorithm.
 
@@ -97,7 +95,7 @@ class Platform(OrganisationalModel):
 
         return ENCRYPTERS[self.password_algorithm](password)
 
-    def decrypt_password(self, password):
+    def decrypt_password(self, password) -> str:
         """
         Decrypts a password using the defined algorithm.
 
@@ -111,11 +109,11 @@ class Platform(OrganisationalModel):
         return DECRYPTERS[self.password_algorithm](password)
 
 
-class Router(PushedDataMixin, PrimaryModel):
+class Router(JobsMixin, PushedDataMixin, PrimaryModel):
     local_autonomous_system = models.ForeignKey(
         to="peering.AutonomousSystem", on_delete=models.CASCADE, null=True
     )
-    name = models.CharField(max_length=128)
+    name = models.CharField(max_length=128, unique=True)
     hostname = models.CharField(max_length=256)
     platform = models.ForeignKey(
         to="devices.Platform",
@@ -142,7 +140,7 @@ class Router(PushedDataMixin, PrimaryModel):
     configuration_template = models.ForeignKey(
         "devices.Configuration", blank=True, null=True, on_delete=models.SET_NULL
     )
-    communities = models.ManyToManyField(to="peering.Community", blank=True)
+    communities = models.ManyToManyField(to="bgp.Community", blank=True)
     netbox_device_id = models.PositiveIntegerField(
         blank=True, default=0, verbose_name="NetBox device"
     )
@@ -164,13 +162,10 @@ class Router(PushedDataMixin, PrimaryModel):
             ),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
-    def get_absolute_url(self):
-        return reverse("devices:router_view", args=[self.pk])
-
-    def get_direct_peering_sessions_list_url(self):
+    def get_direct_peering_sessions_list_url(self) -> str:
         return reverse("devices:router_direct_peering_sessions", args=[self.pk])
 
     def get_status_colour(self):
@@ -256,13 +251,13 @@ class Router(PushedDataMixin, PrimaryModel):
             sessions = DirectPeeringSession.objects.filter(router=self).values_list(
                 "autonomous_system", flat=True
             )
-        return AutonomousSystem.objects.defer("prefixes").filter(pk__in=sessions)
+        return AutonomousSystem.objects.filter(pk__in=sessions)
 
     def get_ixp_autonomous_systems(self, internet_exchange_point=None):
         """
         Returns autonomous systems with which this router peers over IXPs.
         """
-        return AutonomousSystem.objects.defer("prefixes").filter(
+        return AutonomousSystem.objects.filter(
             pk__in=InternetExchangePeeringSession.objects.filter(
                 ixp_connection__in=self.get_connections(
                     internet_exchange_point=internet_exchange_point
@@ -370,19 +365,81 @@ class Router(PushedDataMixin, PrimaryModel):
             | Q(internetexchangepeeringsession__ixp_connection__router=self)
         ).distinct()
 
+    def get_routing_policies(self):
+        """
+        Returns all routing policies that this router should have.
+        """
+        q = Q()
+
+        if direct_sessions := list(
+            self.get_direct_peering_sessions().values_list("pk", flat=True)
+        ):
+            q |= Q(
+                directpeeringsession_import_routing_policies__in=direct_sessions
+            ) | Q(directpeeringsession_export_routing_policies__in=direct_sessions)
+
+            direct_as = (
+                DirectPeeringSession.objects.filter(pk__in=direct_sessions)
+                .values_list("autonomous_system", flat=True)
+                .distinct()
+            )
+            q |= Q(autonomoussystem_import_routing_policies__in=direct_as) | Q(
+                autonomoussystem_export_routing_policies__in=direct_as
+            )
+
+            if bgp_groups := (
+                DirectPeeringSession.objects.filter(
+                    pk__in=direct_sessions, bgp_group__isnull=False
+                )
+                .values_list("bgp_group", flat=True)
+                .distinct()
+            ):
+                q |= Q(bgpgroup_import_routing_policies__in=bgp_groups) | Q(
+                    bgpgroup_export_routing_policies__in=bgp_groups
+                )
+
+        if ixp_sessions := list(
+            self.get_ixp_peering_sessions().values_list("pk", flat=True)
+        ):
+            q |= Q(
+                internetexchangepeeringsession_import_routing_policies__in=ixp_sessions
+            ) | Q(
+                internetexchangepeeringsession_export_routing_policies__in=ixp_sessions
+            )
+
+            ixp_as = (
+                InternetExchangePeeringSession.objects.filter(pk__in=ixp_sessions)
+                .values_list("autonomous_system", flat=True)
+                .distinct()
+            )
+            q |= Q(autonomoussystem_import_routing_policies__in=ixp_as) | Q(
+                autonomoussystem_export_routing_policies__in=ixp_as
+            )
+
+            ixps = (
+                InternetExchangePeeringSession.objects.filter(pk__in=ixp_sessions)
+                .values_list("ixp_connection__internet_exchange_point", flat=True)
+                .distinct()
+            )
+            q |= Q(internetexchange_import_routing_policies__in=ixps) | Q(
+                internetexchange_export_routing_policies__in=ixps
+            )
+
+        return RoutingPolicy.objects.filter(q).distinct().order_by("name")
+
     def get_configuration_context(self):
         """
         Returns a dict, to be used in a Jinja2 environment, that holds enough data to
         help in creating a configuration from a template.
         """
         return {
+            "router": self,
+            "local_as": self.local_autonomous_system,
             "autonomous_systems": self.get_autonomous_systems(),
             "bgp_groups": self.get_bgp_groups(),
-            "communities": Community.objects.all(),
             "internet_exchange_points": self.get_internet_exchange_points(),
-            "local_as": self.local_autonomous_system,
-            "routing_policies": RoutingPolicy.objects.all(),
-            "router": self,
+            "communities": Community.objects.all(),
+            "routing_policies": self.get_routing_policies(),
         }
 
     def render_configuration(self):

@@ -12,7 +12,7 @@ from dulwich import porcelain
 from dulwich.config import ConfigDict
 
 from .constants import GIT_ERROR_MATCHES
-from .exceptions import PushError, SynchronisationError
+from .exceptions import FetchError, PushError, SynchronisationError
 from .utils import register_data_backend
 
 __all__ = ("GitRepositoryBackend", "LocalBackend")
@@ -75,12 +75,22 @@ class LocalBackend(DataBackend):
     @contextmanager
     def fetch(self):
         logger.debug("local data source type; skipping fetch")
-        yield urlparse(self.url).path
+        path = Path(self.url).resolve()
+
+        if not path.exists():
+            raise FetchError(f"Local path does not exist: {path}")
+
+        yield str(path)
 
     @contextmanager
     def push(self, *file_paths, commit_message=settings.GIT_COMMIT_MESSAGE):
-        yield urlparse(self.url).path
         logger.debug("local data source type; skipping push")
+        path = Path(self.url).resolve()
+
+        if not path.exists():
+            raise PushError(f"Local path does not exist: {path}")
+
+        yield str(path)
 
 
 @register_data_backend()
@@ -111,8 +121,10 @@ class GitRepositoryBackend(DataBackend):
     def init_config(self):
         config = ConfigDict()
 
-        if settings.HTTP_PROXIES and self.url_scheme in settings.HTTP_PROXIES:
-            config.set("http", "proxy", settings.HTTP_PROXIES[self.url_scheme])
+        if settings.HTTP_PROXIES and (
+            proxy := settings.HTTP_PROXIES.get(self.url_scheme, None)
+        ):
+            config.set("http", "proxy", proxy)
 
         return config
 

@@ -1,10 +1,12 @@
 from unittest.mock import patch
 
+from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 from django.urls import reverse
 from rest_framework import status
 
 from peering.models import AutonomousSystem
+from peering.tests.mocked_data import mocked_subprocess_popen
 from utils.testing import APITestCase, APIViewTestCases, MockedResponse
 
 from ..models import (
@@ -12,6 +14,7 @@ from ..models import (
     ConfigContext,
     ConfigContextAssignment,
     ExportTemplate,
+    JournalEntry,
     Tag,
     Webhook,
 )
@@ -25,7 +28,7 @@ class AppTest(APITestCase):
 
 class ConfigContextTest(APIViewTestCases.View):
     model = ConfigContext
-    brief_fields = ["id", "url", "display", "name"]
+    brief_fields = ["id", "url", "display_url", "display", "name"]
 
     @classmethod
     def setUpTestData(cls):
@@ -43,8 +46,9 @@ class ConfigContextTest(APIViewTestCases.View):
         ]
 
 
-class ConfigContextAssignmentAssignmentTest(APIViewTestCases.View):
+class ConfigContextAssignmentTest(APIViewTestCases.View):
     model = ConfigContextAssignment
+    query_fields = ["id", "url", "display"]
     brief_fields = ["id", "url", "display", "config_context"]
 
     @classmethod
@@ -102,7 +106,7 @@ class ConfigContextAssignmentAssignmentTest(APIViewTestCases.View):
 
 class ExportTemplateTest(APIViewTestCases.View):
     model = ExportTemplate
-    brief_fields = ["id", "url", "display", "name"]
+    brief_fields = ["id", "url", "display_url", "display", "name"]
 
     @classmethod
     def setUpTestData(cls):
@@ -147,25 +151,25 @@ class ExportTemplateTest(APIViewTestCases.View):
 
 class IXAPITest(APIViewTestCases.View):
     model = IXAPI
-    brief_fields = ["id", "display", "name", "url"]
+    brief_fields = ["id", "url", "display_url", "display", "name"]
     create_data = [
         {
             "name": "IXP 4",
-            "url": "https://ixp4-ixapi.example.net",
+            "api_url": "https://ixp4-ixapi.example.net",
             "api_key": "key-ixp4",
             "api_secret": "secret-ixp4",
             "identity": "1234",
         },
         {
             "name": "IXP 5",
-            "url": "https://ixp5-ixapi.example.net",
+            "api_url": "https://ixp5-ixapi.example.net",
             "api_key": "key-ixp5",
             "api_secret": "secret-ixp5",
             "identity": "1234",
         },
         {
             "name": "IXP 6",
-            "url": "https://ixp6-ixapi.example.net",
+            "api_url": "https://ixp6-ixapi.example.net",
             "api_key": "key-ixp6",
             "api_secret": "secret-ixp6",
             "identity": "1234",
@@ -178,21 +182,21 @@ class IXAPITest(APIViewTestCases.View):
             [
                 IXAPI(
                     name="IXP 1",
-                    url="https://ixp1-ixapi.example.net/v1/",
+                    api_url="https://ixp1-ixapi.example.net/v1/",
                     api_key="key-ixp1",
                     api_secret="secret-ixp1",
                     identity="1234",
                 ),
                 IXAPI(
                     name="IXP 2",
-                    url="https://ixp2-ixapi.example.net/v2/",
+                    api_url="https://ixp2-ixapi.example.net/v2/",
                     api_key="key-ixp2",
                     api_secret="secret-ixp2",
                     identity="1234",
                 ),
                 IXAPI(
                     name="IXP 3",
-                    url="https://ixp3-ixapi.example.net/v3/",
+                    api_url="https://ixp3-ixapi.example.net/v3/",
                     api_key="key-ixp3",
                     api_secret="secret-ixp3",
                     identity="1234",
@@ -227,7 +231,7 @@ class IXAPITest(APIViewTestCases.View):
             response = self.client.get(
                 url,
                 data={
-                    "url": ixapi.url,
+                    "api_url": ixapi.api_url,
                     "api_key": ixapi.api_key,
                     "api_secret": ixapi.api_secret,
                 },
@@ -237,9 +241,57 @@ class IXAPITest(APIViewTestCases.View):
             self.assertHttpStatus(response, status.HTTP_200_OK)
 
 
+class JournalEntryTest(APIViewTestCases.View):
+    model = JournalEntry
+    brief_fields = ["id", "url", "display_url", "display", "created"]
+    bulk_update_data = {"comments": "Overwritten"}
+
+    @classmethod
+    def setUpTestData(cls):
+        user = User.objects.first()
+        autonomous_system = AutonomousSystem.objects.create(name="AS 1", asn=65535)
+
+        journal_entries = (
+            JournalEntry(
+                created_by=user,
+                assigned_object=autonomous_system,
+                comments="Fourth entry",
+            ),
+            JournalEntry(
+                created_by=user,
+                assigned_object=autonomous_system,
+                comments="Fifth entry",
+            ),
+            JournalEntry(
+                created_by=user,
+                assigned_object=autonomous_system,
+                comments="Sixth entry",
+            ),
+        )
+        JournalEntry.objects.bulk_create(journal_entries)
+
+        cls.create_data = [
+            {
+                "assigned_object_type": "peering.autonomoussystem",
+                "assigned_object_id": autonomous_system.pk,
+                "comments": "First entry",
+            },
+            {
+                "assigned_object_type": "peering.autonomoussystem",
+                "assigned_object_id": autonomous_system.pk,
+                "comments": "Second entry",
+            },
+            {
+                "assigned_object_type": "peering.autonomoussystem",
+                "assigned_object_id": autonomous_system.pk,
+                "comments": "Third entry",
+            },
+        ]
+
+
 class TagTest(APIViewTestCases.View):
     model = Tag
-    brief_fields = ["id", "url", "name", "slug", "color"]
+    brief_fields = ["id", "url", "display_url", "display", "name", "slug", "color"]
     create_data = [
         {"name": "Test 4", "slug": "test-4"},
         {"name": "Test 5", "slug": "test-5"},
@@ -260,7 +312,7 @@ class TagTest(APIViewTestCases.View):
 
 class WebhookTest(APIViewTestCases.View):
     model = Webhook
-    brief_fields = ["id", "name", "url"]
+    brief_fields = ["id", "url", "display_url", "display", "name"]
     create_data = [
         {
             "name": "Webhook 4",
@@ -307,3 +359,118 @@ class WebhookTest(APIViewTestCases.View):
         )
         for webhook in webhooks:
             webhook.content_types.set([as_ct])
+
+
+class PrefixListViewTest(APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("extras-api:api-prefix-list")
+
+    @patch("peering.functions.subprocess.Popen", side_effect=mocked_subprocess_popen)
+    def test_get_prefix_list_with_as_set(self, mocked_popen):
+        response = self.client.get(
+            self.url, data={"as-set": "AS-MOCKED"}, format="json", **self.header
+        )
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+        self.assertIn("AS-MOCKED", response.data)
+        self.assertIn("ipv4", response.data["AS-MOCKED"])
+        self.assertIn("ipv6", response.data["AS-MOCKED"])
+        self.assertEqual(len(response.data["AS-MOCKED"]["ipv4"]), 1)
+        self.assertEqual(len(response.data["AS-MOCKED"]["ipv6"]), 1)
+
+    @patch("peering.functions.subprocess.Popen", side_effect=mocked_subprocess_popen)
+    def test_get_prefix_list_with_multiple_as_sets(self, mocked_popen):
+        response = self.client.get(
+            self.url, data={"as-set": "AS-MOCKED,AS65537"}, format="json", **self.header
+        )
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+        self.assertIn("AS-MOCKED", response.data)
+        self.assertIn("AS65537", response.data)
+
+    @patch("peering.functions.subprocess.Popen", side_effect=mocked_subprocess_popen)
+    def test_get_prefix_list_ipv4_only(self, mocked_popen):
+        response = self.client.get(
+            self.url,
+            data={"as-set": "AS-MOCKED", "af": "4"},
+            format="json",
+            **self.header,
+        )
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+        self.assertIn("AS-MOCKED", response.data)
+        self.assertIn("ipv4", response.data["AS-MOCKED"])
+        self.assertNotIn("ipv6", response.data["AS-MOCKED"])
+        self.assertEqual(len(response.data["AS-MOCKED"]["ipv4"]), 1)
+
+    @patch("peering.functions.subprocess.Popen", side_effect=mocked_subprocess_popen)
+    def test_get_prefix_list_ipv6_only(self, mocked_popen):
+        response = self.client.get(
+            self.url,
+            data={"as-set": "AS-MOCKED", "af": "6"},
+            format="json",
+            **self.header,
+        )
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+        self.assertIn("AS-MOCKED", response.data)
+        self.assertIn("ipv6", response.data["AS-MOCKED"])
+        self.assertNotIn("ipv4", response.data["AS-MOCKED"])
+        self.assertEqual(len(response.data["AS-MOCKED"]["ipv6"]), 1)
+
+    def test_get_prefix_list_missing_as_set(self):
+        response = self.client.get(self.url, format="json", **self.header)
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", response.data)
+
+    def test_get_prefix_list_invalid_af(self):
+        response = self.client.get(
+            self.url,
+            data={"as-set": "AS-MOCKED", "af": "5"},
+            format="json",
+            **self.header,
+        )
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("detail", response.data)
+
+    @patch("peering.functions.subprocess.Popen", side_effect=mocked_subprocess_popen)
+    def test_get_prefix_list_with_cache(self, mocked_popen):
+        response = self.client.get(
+            self.url, data={"as-set": "AS-MOCKED"}, format="json", **self.header
+        )
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+        call_count = mocked_popen.call_count
+
+        cached_response = self.client.get(
+            self.url, data={"as-set": "AS-MOCKED"}, format="json", **self.header
+        )
+        self.assertHttpStatus(cached_response, status.HTTP_200_OK)
+        self.assertEqual(mocked_popen.call_count, call_count)
+        self.assertEqual(response.data, cached_response.data)
+
+    @patch("peering.functions.subprocess.Popen", side_effect=mocked_subprocess_popen)
+    def test_get_prefix_list_skip_cache(self, mocked_popen):
+        response = self.client.get(
+            self.url,
+            data={"as-set": "AS-MOCKED", "skip-cache": "true"},
+            format="json",
+            **self.header,
+        )
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+        call_count = mocked_popen.call_count
+
+        second_response = self.client.get(
+            self.url,
+            data={"as-set": "AS-MOCKED", "skip-cache": "true"},
+            format="json",
+            **self.header,
+        )
+        self.assertHttpStatus(second_response, status.HTTP_200_OK)
+        self.assertGreater(mocked_popen.call_count, call_count)
+
+    @patch("peering.functions.subprocess.Popen", side_effect=mocked_subprocess_popen)
+    def test_get_prefix_list_no_prefixes_found(self, mocked_popen):
+        response = self.client.get(
+            self.url, data={"as-set": "AS-NOPREFIXES"}, format="json", **self.header
+        )
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+        self.assertIn("AS-NOPREFIXES", response.data)
+        self.assertEqual(len(response.data["AS-NOPREFIXES"]["ipv4"]), 0)
+        self.assertEqual(len(response.data["AS-NOPREFIXES"]["ipv6"]), 0)

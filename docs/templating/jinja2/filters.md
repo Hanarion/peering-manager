@@ -289,6 +289,18 @@ Example:
 {% set prefixes = autonomous_system | prefix_list %}
 ```
 
+## `as_list`
+
+Fetches the AS list of an autonomous system and returns it as a list of
+integers. It is fetched using `bgpq3` (or `bgpq4`) but can come from the local
+cache if present.
+
+Example:
+
+```no-highlight
+{% set as_list = autonomous_system | as_list %}
+```
+
 ## `connections`
 
 On an IXP or a router, it will return all connections attached to it.
@@ -484,6 +496,38 @@ Examples:
 ```no-highlight
 export [ {{ session | merge_export_policies | iterate('slug') | join(' ') }} ];
 import [ {{ session | merge_import_policies('reverse') | iterate('slug') | join(' ') }} ];
+```
+
+## `routing_policies`
+
+For a router, returns a list of all unique routing policies that need to be
+configured on the router.
+
+The returned list contains only unique policies, ordered by their name. This
+is useful for generating the routing policy configuration section of a router.
+
+You can use a string as an option to this filter to select only a specific
+field of the policies. Another optional argument named `family` can be used to
+get policies only matching a given address family. Values for the family
+parameter can be `4` or `6`.
+
+Examples:
+
+```no-highlight
+{% for policy in router | routing_policies %}
+route-policy {{ policy.slug }}
+  # {{ policy.name }}
+  ...
+end-policy
+{% endfor %}
+
+policies [ {{ router | routing_policies('slug') | join(' ') }} ];
+
+{% for policy in router | routing_policies(family=6) %}
+route-policy {{ policy.slug }}
+  ...
+end-policy
+{% endfor %}
 ```
 
 ## `communities`

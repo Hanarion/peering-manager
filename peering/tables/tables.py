@@ -1,17 +1,17 @@
 import django_tables2 as tables
 
+from bgp.tables import CommunityColumn
 from peering_manager.tables import PeeringManagerTable, columns
 
 from ..models import (
     AutonomousSystem,
     BGPGroup,
-    Community,
     DirectPeeringSession,
     InternetExchange,
     InternetExchangePeeringSession,
     RoutingPolicy,
 )
-from .columns import BGPSessionStateColumn, CommunityColumn, RoutingPolicyColumn
+from .columns import BGPSessionStateColumn, RoutingPolicyColumn
 
 BGP_RELATIONSHIP = "{{ record.relationship.get_html }}"
 COMMUNITY_TYPE = "{{ record.get_type_html }}"
@@ -110,17 +110,6 @@ class BGPGroupTable(PeeringManagerTable):
         )
 
 
-class CommunityTable(PeeringManagerTable):
-    name = tables.Column(linkify=True)
-    type = tables.TemplateColumn(template_code=COMMUNITY_TYPE)
-    tags = columns.TagColumn(url_name="peering:community_list")
-
-    class Meta(PeeringManagerTable.Meta):
-        model = Community
-        fields = ("pk", "name", "slug", "value", "type", "tags", "actions")
-        default_columns = ("pk", "name", "value", "type", "actions")
-
-
 class DirectPeeringSessionTable(PeeringManagerTable):
     append_template = """
     {% load helpers %}
@@ -207,6 +196,10 @@ class InternetExchangeTable(PeeringManagerTable):
         verbose_name="Connections",
         attrs={"td": {"class": "text-center"}, "th": {"class": "text-center"}},
     )
+    session_count = tables.Column(
+        verbose_name="Sessions",
+        attrs={"td": {"class": "text-center"}, "th": {"class": "text-center"}},
+    )
     tags = columns.TagColumn(url_name="peering:internetexchange_list")
 
     class Meta(PeeringManagerTable.Meta):
@@ -222,10 +215,18 @@ class InternetExchangeTable(PeeringManagerTable):
             "export_routing_policies",
             "communities",
             "connection_count",
+            "session_count",
             "tags",
             "actions",
         )
-        default_columns = ("pk", "name", "status", "connection_count", "actions")
+        default_columns = (
+            "pk",
+            "name",
+            "status",
+            "connection_count",
+            "session_count",
+            "actions",
+        )
 
 
 class InternetExchangePeeringSessionTable(PeeringManagerTable):
@@ -263,6 +264,9 @@ class InternetExchangePeeringSessionTable(PeeringManagerTable):
     exists_in_peeringdb = columns.BooleanColumn(
         accessor="exists_in_peeringdb", verbose_name="In PeeringDB", orderable=False
     )
+    is_abandoned = columns.BooleanColumn(
+        accessor="is_abandoned", verbose_name="Is Abandoned", orderable=False
+    )
     state = BGPSessionStateColumn(accessor="bgp_state")
     tags = columns.TagColumn(url_name="peering:internetexchangepeeringsession_list")
     actions = columns.ActionsColumn(extra_buttons=append_template)
@@ -286,6 +290,7 @@ class InternetExchangePeeringSessionTable(PeeringManagerTable):
             "communities",
             "bfd",
             "exists_in_peeringdb",
+            "is_abandoned",
             "state",
             "last_established_state",
             "received_prefix_count",

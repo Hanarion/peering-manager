@@ -11,18 +11,21 @@
 
     <title>{% block title %}Home{% endblock %} - Peering Manager</title>
 
-    <script defer src="{% static 'fontawesome-6.6.0/js/all.js' %}"></script>
+    <script defer src="{% static 'fontawesome-7.0.1/js/all.js' %}"></script>
 
-    <link rel="stylesheet" href="{% static 'bootstrap-5.3.3-dist/css/bootstrap.min.css' %}">
-    <link rel="stylesheet" href="{% static 'fontawesome-6.6.0/css/all.css' %}">
+    <link rel="stylesheet" href="{% static 'bootstrap-5.3.8-dist/css/bootstrap.min.css' %}">
+    <link rel="stylesheet" href="{% static 'fontawesome-7.0.1/css/all.css' %}">
     <link rel="stylesheet" href="{% static 'select2-4.0.13/css/select2.min.css' %}">
     <link rel="stylesheet" href="{% static 'css/select2-bootstrap.min.css' %}">
+    <link rel="stylesheet" href="{% static 'css/flatpickr.min.css' %}">
+    <link rel="stylesheet" href="{% static 'css/flatpickr.dark.css' %}">
     <link rel="stylesheet" href="{% static 'css/base.css' %}?{{ settings.VERSION }}">
     <link rel="icon" type="image/png" href="{% static 'img/peering-manager.ico' %}" />
 
     <script src="{% static 'js/jquery-3.7.1.min.js' %}"></script>
-    <script src="{% static 'bootstrap-5.3.3-dist/js/bootstrap.bundle.min.js' %}"></script>
+    <script src="{% static 'bootstrap-5.3.8-dist/js/bootstrap.bundle.min.js' %}"></script>
     <script src="{% static 'select2-4.0.13/js/select2.full.min.js' %}"></script>
+    <script src="{% static 'js/flatpickr-4.6.13.min.js' %}"></script>
     <script src="{% static 'js/base.js' %}?{{ settings.VERSION }}"></script>
     <script src="{% static 'js/forms.js' %}?{{ settings.VERSION }}"></script>
   </head>
@@ -79,7 +82,8 @@
                 </a>
                 <ul id="provisioning-menu" class="collapse list-unstyled">
                   <li class="nav-item"><a href="{% url 'peeringdb:ixp_peers' %}" class="nav-link{% if url_path|contains:'/peeringdb/available-ixp-peers/' %} active{% endif %}">Available IXP Peers</a></li>
-                  <li class="nav-item"><a href="{% url 'peeringdb:email_network' %}" class="nav-link{% if url_path|contains:'/peeringdb/email-network/' %} active{% endif %}">Send E-mail to Network</a></li>
+                  <li class="nav-item"><a href="{% url 'peeringdb:hiddenpeer_list' %}" class="nav-link{% if url_path|contains:'/peeringdb/hidden-peers/' %} active{% endif %}">Hidden Peers</a></li>
+                  <li class="nav-item"><a href="{% url 'peeringdb:email_network' %}{% if context_as %}?affiliated={{ context_as.pk }}{% endif %}" class="nav-link{% if url_path|contains:'/peeringdb/email-network/' %} active{% endif %}">Send E-mail to Network</a></li>
                 </ul>
               </li>
               <li class="nav-item">
@@ -89,7 +93,7 @@
                   <span class="submenu-icon float-end"><i class="fa-fw fa-solid fa-caret-right"></i></span>
                 </a>
                 <ul id="policyoptions-menu" class="collapse list-unstyled">
-                  <li class="nav-item"><a href="{% url 'peering:community_list' %}" class="nav-link{% if url_path|contains:'/communities/' %} active{% endif %}">Communities</a></li>
+                  <li class="nav-item"><a href="{% url 'bgp:community_list' %}" class="nav-link{% if url_path|contains:'/communities/' %} active{% endif %}">Communities</a></li>
                   <li class="nav-item"><a href="{% url 'peering:routingpolicy_list' %}" class="nav-link{% if url_path|contains:'/routing-policies/' %} active{% endif %}">Routing Policies</a></li>
                 </ul>
               </li>
@@ -138,6 +142,7 @@
                   <li class="nav-item"><a href="{% url 'core:datasource_list' %}" class="nav-link{% if url_path|contains:'/core/data-sources/' %} active{% endif %}">Data Sources</a></li>
                   <li class="nav-item"><a href="{% url 'core:job_list' %}" class="nav-link{% if url_path|contains:'/core/jobs/' %} active{% endif %}">Jobs</a></li>
                   <li class="nav-item"><a href="{% url 'extras:webhook_list' %}" class="nav-link{% if url_path|contains:'/extras/webhooks/' %} active{% endif %}">Webhooks</a></li>
+                  <li class="nav-item"><a href="{% url 'extras:journalentry_list' %}" class="nav-link{% if url_path|contains:'/extras/journal-entries/' %} active{% endif %}">Journal Entries</a></li>
                   <li class="nav-item"><a href="{% url 'core:objectchange_list' %}" class="nav-link{% if url_path|contains:'/core/changelog/' %} active{% endif %}">Change Log</a></li>
                 </ul>
               </li>

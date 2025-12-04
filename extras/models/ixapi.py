@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 import pyixapi
 from django.apps import apps
@@ -11,6 +14,9 @@ from django.urls import reverse
 from core.constants import CENSORSHIP_STRING, CENSORSHIP_STRING_CHANGED
 from peering_manager.models import ChangeLoggedModel
 
+if TYPE_CHECKING:
+    from core.models import ObjectChange
+
 logger = logging.getLogger("peering.manager.extras.ixapi")
 
 __all__ = ("IXAPI",)
@@ -22,7 +28,7 @@ class IXAPI(ChangeLoggedModel):
     """
 
     name = models.CharField(max_length=100)
-    url = models.CharField(max_length=2000, verbose_name="URL")
+    api_url = models.CharField(max_length=2000, verbose_name="URL")
     api_key = models.CharField(max_length=2000, verbose_name="API key")
     api_secret = models.CharField(max_length=2000, verbose_name="API secret")
     identity = models.CharField(
@@ -41,19 +47,19 @@ class IXAPI(ChangeLoggedModel):
 
     class Meta:
         verbose_name = "IX-API"
-        ordering = ["name", "url", "-created"]
+        ordering = ["name", "api_url", "-created"]
         constraints = [
             models.UniqueConstraint(
-                fields=["url", "api_key"], name="unique_ixapi_url_key"
+                fields=["api_url", "api_key"], name="unique_ixapi_url_key"
             )
         ]
 
     @property
-    def _cache_key(self):
+    def _cache_key(self) -> str:
         return f"ixapi_data__{self.pk}"
 
     @property
-    def version(self):
+    def version(self) -> int:
         """
         Returns the API version based on the URL.
         """
@@ -69,13 +75,13 @@ class IXAPI(ChangeLoggedModel):
 
         return value
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
-    def get_absolute_url(self):
-        return reverse("extras:ixapi_view", args=[self.pk])
+    def get_absolute_url(self) -> str:
+        return reverse("extras:ixapi", args=[self.pk])
 
-    def to_objectchange(self, action):
+    def to_objectchange(self, action) -> ObjectChange:
         object_change = super().to_objectchange(action)
 
         prechange_data = {}
@@ -98,12 +104,12 @@ class IXAPI(ChangeLoggedModel):
         return object_change
 
     @staticmethod
-    def test_connectivity(url, api_key, api_secret):
+    def test_connectivity(api_url, api_key, api_secret):
         """
         Performs a authentication and see if it succeeds.
         """
         api = pyixapi.api(
-            url=url,
+            url=api_url,
             key=api_key,
             secret=api_secret,
             user_agent=settings.REQUESTS_USER_AGENT,
@@ -131,7 +137,7 @@ class IXAPI(ChangeLoggedModel):
         Returns a API client to use for queries.
         """
         api = pyixapi.api(
-            url=self.url,
+            url=self.api_url,
             key=self.api_key,
             secret=self.api_secret,
             access_token=self.access_token,
