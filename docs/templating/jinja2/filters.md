@@ -125,25 +125,25 @@ Both IPv4 and IPv6 addresses are supported.
 Examples:
 
 ```no-highlight
-{# Plain address, no masking #}
+{# Plain address, no prefix — raw integer, no shift #}
 {{ "192.168.1.1" | ip_to_int }}
 {# → 3232235777 #}
 
-{# Prefix embedded in the value — host bits zeroed #}
+{# /24 — network address right-shifted by 8 bits #}
 {{ "192.168.1.5/24" | ip_to_int }}
-{# → 3232235776 (192.168.1.0) #}
+{# → 12625921 (192.168.1.0 >> 8) #}
 
 {# Explicit prefix length argument — overrides any embedded prefix #}
 {{ "192.168.1.5/24" | ip_to_int(16) }}
-{# → 3232235520 (192.168.0.0) #}
+{# → 49320 (192.168.0.0 >> 16) #}
 
-{# Non-byte-aligned prefix #}
+{# Non-byte-aligned prefix (/22 shifts by 10 bits) #}
 {{ "10.1.2.3/22" | ip_to_int }}
-{# → 167837696 (10.1.0.0) #}
+{# → 164864 (10.1.0.0 >> 10) #}
 
-{# IPv6 #}
+{# IPv6 /32 — network address right-shifted by 96 bits #}
 {{ "2001:db8::1/32" | ip_to_int }}
-{# → integer for 2001:db8:: #}
+{# → 536939960 (2001:db8:: >> 96) #}
 
 {# Typical use: stable sequence number per /24 #}
 {% for session in router | sessions %}

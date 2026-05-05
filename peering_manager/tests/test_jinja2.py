@@ -706,41 +706,43 @@ class Jinja2FilterTestCase(TestCase):
             FILTER_DICT["relationships"](self.ixp_connection)
 
     def test_ip_to_int(self):
+        import ipaddress as _ipaddress
+
         ip_to_int = FILTER_DICT["ip_to_int"]
 
-        # Plain IPv4 address, no prefix — full integer
-        self.assertEqual(ip_to_int("192.168.1.1"), 3232235777)
+        def expected(cidr):
+            net = _ipaddress.ip_network(cidr, strict=False)
+            bits = 32 if net.version == 4 else 128
+            return int(net.network_address) >> (bits - net.prefixlen)
 
-        # IPv4 with embedded /24 — last octet zeroed
-        self.assertEqual(ip_to_int("192.168.1.5/24"), 3232235776)
+        # Plain IPv4 address, no prefix — full unshifted integer
+        self.assertEqual(ip_to_int("192.168.1.1"), int(_ipaddress.ip_address("192.168.1.1")))
 
-        # IPv4 with explicit prefix_length argument overriding embedded one
-        self.assertEqual(ip_to_int("192.168.1.5/24", prefix_length=16), 3232235520)
+        # IPv4 /24 — right-shifted by 8 bits
+        self.assertEqual(ip_to_int("192.168.1.5/24"), expected("192.168.1.0/24"))
 
-        # IPv4 with /22 — non-byte-aligned mask
-        # 10.1.2.3/22 → network 10.1.0.0 = 0x0A010000
-        self.assertEqual(ip_to_int("10.1.2.3/22"), (10 << 24) | (1 << 16))
+        # IPv4 with explicit prefix_length overriding embedded one
+        self.assertEqual(ip_to_int("192.168.1.5/24", prefix_length=16), expected("192.168.0.0/16"))
 
-        # IPv4 with /32 — host address unchanged
-        self.assertEqual(ip_to_int("1.2.3.4/32"), (1 << 24) | (2 << 16) | (3 << 8) | 4)
+        # IPv4 /22 — non-byte-aligned, right-shifted by 10 bits
+        self.assertEqual(ip_to_int("10.1.2.3/22"), expected("10.1.0.0/22"))
 
-        # IPv4 with /0 — all bits zeroed
+        # IPv4 /32 — no shift, full host address
+        self.assertEqual(ip_to_int("1.2.3.4/32"), expected("1.2.3.4/32"))
+
+        # IPv4 /0 — always 0
         self.assertEqual(ip_to_int("10.20.30.40/0"), 0)
 
-        # IPv6 plain address
-        import ipaddress
-        self.assertEqual(ip_to_int("2001:db8::1"), int(ipaddress.ip_address("2001:db8::1")))
+        # IPv6 plain address — full unshifted integer
+        self.assertEqual(ip_to_int("2001:db8::1"), int(_ipaddress.ip_address("2001:db8::1")))
 
         # IPv6 with embedded /32
-        self.assertEqual(
-            ip_to_int("2001:db8::1/32"),
-            int(ipaddress.ip_network("2001:db8::1/32", strict=False).network_address),
-        )
+        self.assertEqual(ip_to_int("2001:db8::1/32"), expected("2001:db8::/32"))
 
         # IPv6 with explicit prefix_length
         self.assertEqual(
             ip_to_int("2001:db8:1:2::5", prefix_length=48),
-            int(ipaddress.ip_network("2001:db8:1:2::5/48", strict=False).network_address),
+            expected("2001:db8:1::/48"),
         )
 
         # Invalid address raises ValueError

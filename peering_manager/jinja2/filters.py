@@ -943,7 +943,9 @@ def ip_to_int(value, prefix_length=None):
         )
 
     network = ipaddress.ip_network(f"{addr}/{effective_prefix}", strict=False)
-    return int(network.network_address)
+    # Right-shift away the host bits so the result is as small as possible
+    host_bits = bits - effective_prefix
+    return int(network.network_address) >> host_bits
 
 
 FILTER_DICT = {
