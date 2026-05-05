@@ -903,6 +903,49 @@ def bfds(value):
     return value.get_bfd_configs()
 
 
+def ip_to_int(value, prefix_length=None):
+    """
+    Converts an IP address (or IP/CIDR) to the integer representation of its network
+    address after masking host bits according to the prefix length.
+
+    The prefix length can be embedded in the value ("192.0.2.5/24") or passed as a
+    separate argument.  When both are provided, the explicit argument takes precedence.
+    With no prefix length the plain integer value of the address is returned.
+
+    Works for both IPv4 and IPv6.
+    """
+    value = str(value)
+
+    embedded_prefix = None
+    if "/" in value:
+        addr_str, cidr_str = value.split("/", 1)
+        try:
+            embedded_prefix = int(cidr_str)
+        except ValueError as e:
+            raise ValueError(f"invalid prefix length in '{value}'") from e
+    else:
+        addr_str = value
+
+    try:
+        addr = ipaddress.ip_address(addr_str)
+    except ValueError as e:
+        raise ValueError(f"'{addr_str}' is not a valid IP address") from e
+
+    effective_prefix = prefix_length if prefix_length is not None else embedded_prefix
+
+    if effective_prefix is None:
+        return int(addr)
+
+    bits = 32 if addr.version == 4 else 128
+    if not (0 <= effective_prefix <= bits):
+        raise ValueError(
+            f"prefix length {effective_prefix} is out of range for IPv{addr.version}"
+        )
+
+    network = ipaddress.ip_network(f"{addr}/{effective_prefix}", strict=False)
+    return int(network.network_address)
+
+
 FILTER_DICT = {
     # Generics
     "safe_string": safe_string,
@@ -914,6 +957,7 @@ FILTER_DICT = {
     # IP address utilities
     "ipv4": ipv4,
     "ipv6": ipv6,
+    "ip_to_int": ip_to_int,
     # MAC utility
     "mac": mac,
     # Length filter and synonyms

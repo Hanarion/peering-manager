@@ -107,6 +107,50 @@ Local: {{ session.local_ip_address | ip }}
 {% endfor %}
 ```
 
+## `ip_to_int`
+
+Converts an IP address to the integer representation of its network address
+after zeroing the host bits according to a prefix length. This produces the
+smallest possible integer that uniquely identifies a network under a given
+prefix length, which is useful for generating compact, sortable sequence
+numbers in router configurations.
+
+The prefix length can be embedded directly in the value (`"192.0.2.5/24"`) or
+supplied as a separate argument. When both are provided, the explicit argument
+takes precedence. If no prefix length is given at all, the plain integer value
+of the address is returned with no masking applied.
+
+Both IPv4 and IPv6 addresses are supported.
+
+Examples:
+
+```no-highlight
+{# Plain address, no masking #}
+{{ "192.168.1.1" | ip_to_int }}
+{# → 3232235777 #}
+
+{# Prefix embedded in the value — host bits zeroed #}
+{{ "192.168.1.5/24" | ip_to_int }}
+{# → 3232235776 (192.168.1.0) #}
+
+{# Explicit prefix length argument — overrides any embedded prefix #}
+{{ "192.168.1.5/24" | ip_to_int(16) }}
+{# → 3232235520 (192.168.0.0) #}
+
+{# Non-byte-aligned prefix #}
+{{ "10.1.2.3/22" | ip_to_int }}
+{# → 167837696 (10.1.0.0) #}
+
+{# IPv6 #}
+{{ "2001:db8::1/32" | ip_to_int }}
+{# → integer for 2001:db8:: #}
+
+{# Typical use: stable sequence number per /24 #}
+{% for session in router | sessions %}
+sequence {{ session.ip_address | ip_to_int(24) }} permit ...
+{% endfor %}
+```
+
 ## `mac`
 
 Returns the MAC address as a lowercased string given a format.
