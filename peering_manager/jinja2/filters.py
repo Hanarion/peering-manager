@@ -9,12 +9,14 @@ from django.db import models
 from django.db.models import Q
 from django.db.models.query import QuerySet
 
-from devices.crypto.cisco import MAGIC as CISCO_MAGIC
+from devices.crypto.arista import MAGIC as ARISTA_TYPE7_MAGIC
+from devices.crypto.cisco import MAGIC as CISCO_TYPE7_MAGIC
 from devices.enums import DeviceStatus
 from devices.models import Router
 from net.enums import ConnectionStatus
 from net.models import Connection
 from peering.enums import BGPGroupStatus, BGPSessionStatus, IPFamily
+from peering.functions import parse_irr_as_set
 from peering.models import (
     AutonomousSystem,
     BGPGroup,
@@ -231,11 +233,11 @@ def max_prefix(value):
     return value.autonomous_system.ipv4_max_prefixes
 
 
-def cisco_password(password):
+def type7_password(password):
     """
     Returns a Cisco type 7 password without the magic word.
     """
-    if password.startswith(CISCO_MAGIC):
+    if password.startswith((CISCO_TYPE7_MAGIC, ARISTA_TYPE7_MAGIC)):
         return password[2:]
     return password
 
@@ -712,6 +714,55 @@ def as_list(value, family=0):
     raise ValueError("value has no AS list")
 
 
+def strip_irr_sources(value):
+    """
+    Returns a list of unique AS-SETs without their IRR source prefixes.
+
+    IRR AS-SETs are often prefixed with a source like "RIPE::AS-EXAMPLE" or
+    "RADB:AS-EXAMPLE". This filter strips those prefixes and returns just the
+    unique AS-SET names.
+
+    Example:
+        {% for as_set in autonomous_system | strip_irr_sources %}
+        {{ as_set }}
+        {% endfor %}
+
+        {% for as_set in "RIPE::AS-EXAMPLE" | strip_irr_sources %}
+        {{ as_set }}
+        {% endfor %}
+    """
+    if type(value) is AutonomousSystem:
+        parsed = parse_irr_as_set(value.asn, value.irr_as_set)
+        return list({as_set for _, as_set in parsed})
+
+    if isinstance(value, str):
+        parsed = parse_irr_as_set(0, value)
+        return list({as_set for _, as_set in parsed})
+
+    raise ValueError("value has no IRR AS-SET")
+
+
+def relationships(value, local_autonomous_system=None):
+    """
+    Returns a queryset of unique relationships for the given autonomous system.
+
+    This filter returns all unique relationships that exist for an autonomous
+    system via its direct peering sessions. Combinee with `iterate` to extract
+    specific fields like slug or name.
+
+    If `local_autonomous_system` is provided, only relationships from direct
+    peering sessions with that affiliated AS are returned.
+
+    Example:
+        {% if 'transit-customer' in asn | relationships | iterate('slug') %}
+        {% if 'transit-customer' in asn | relationships(my_as) | iterate('slug') %}
+    """
+    if type(value) is AutonomousSystem:
+        return value.get_relationships(local_autonomous_system=local_autonomous_system)
+
+    raise ValueError("value has no relationships")
+
+
 def safe_string(value):
     """
     Returns a safe string (retaining only ASCII characters).
@@ -881,6 +932,8 @@ FILTER_DICT = {
     "missing_sessions": missing_sessions,
     "prefix_list": prefix_list,
     "as_list": as_list,
+    "strip_irr_sources": strip_irr_sources,
+    "relationships": relationships,
     # BGP groups
     "local_ips": local_ips,
     # BGP sessions
@@ -891,7 +944,8 @@ FILTER_DICT = {
     "ip": ip,
     "ip_version": ip_version,
     "max_prefix": max_prefix,
-    "cisco_password": cisco_password,
+    "arista_password": type7_password,
+    "cisco_password": type7_password,
     # Connections
     "connections": connections,
     # Routers

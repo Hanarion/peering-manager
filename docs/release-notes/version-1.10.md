@@ -1,3 +1,66 @@
+## Version 1.10.4 | MARK I (Bug fixes release) | 2026-03-20
+
+### Enhancements
+
+* Build sidebar programmatically instead of statically in templates
+
+### Bug Fixes
+
+* [#960](https://github.com/peering-manager/peering-manager/issues/960) Fix storing prefix list in the database
+* Hide tabs when there are no points of showing them
+* Add connections filter based on router value in direct peering session forms
+* Fix IRR object lookup with `BGPQ4_KEEP_SOURCE_IN_SET = True`, fetching IRR data was failing due to using invalid object names
+
+## Version 1.10.3 | MARK I (Bug fixes release) | 2026-02-05
+
+> [!NOTE]
+> Password hashes encrypted with the Juniper Junos cipher may change upon re-encryption. This is because the cipher now uses the remote neighbor IP address as a salt during hashing. After re-encryption, password hashes for Juniper Junos devices should remain consistent, preventing unnecessary configuration differences in the future.
+
+### Enhancements
+
+* Add `relationships` Jinja2 filter, to get a list of relationships for an autonomous
+system
+* Add `strip_irr_sources` Jinja2 filter, get a list of AS-SET with each item stripped of its source prefix
+* Global refactoring of password encryption logic
+* Add Arista password encryption/decryption and migrate existing platform to use it
+* Adjust Juniper password encryption logic to use a salt based on the remote neighbor IP
+* Add tooltip to AS synchronise button
+* Slight tweak for PeeringDB tooltips in AS view
+
+### Bug Fixes
+
+* Fix changing affiliated AS via top bar dropdown
+* Fix PeeringDB cache flush with existing hidden peers objects, objects will also be restored after re-building the PeeringDB cache
+
+## Version 1.10.2 | MARK I (Bug fixes release) | 2025-12-23
+
+### Enhancements
+
+* [#914](https://github.com/peering-manager/peering-manager/issues/914) Add a view to see prefixes for an AS
+* Improve shared IXP query performance
+* Add created/update date and time under a dropdown in object tabs
+* Rework user preferences view to be able to change preferences
+* Add `last_used` and `allowed_ips` fields for tokens
+* Use date and time picker where appropriate
+
+### Bug Fixes
+
+* Fix exception for orphaned IXP sessions
+* Fix URL for messaging views, they are now all nested under `/messaging/`
+* Normalise text when no routing policies are assigned to an object
+* Fix connection view for router not having bulk action buttons
+* Fix fields not being validated when saving the BGP state of sessions
+* Fix journal entries bulk edit view
+* Allow picking a date and time in the past (needed for filter forms)
+
+### Code Housekeeping / Code Quality
+
+* Support poetry 2.x and uv
+
+### Documentation
+
+* Fix mention of PostgreSQL version (by @henriklb)
+
 ## Version 1.10.1 | MARK I (Bug fixes release) | 2025-12-01
 
 ### Bug Fixes

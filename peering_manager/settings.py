@@ -25,7 +25,7 @@ HOSTNAME = platform.node()
 BASE_DIR = Path(__file__).resolve().parent.parent
 DOCS_DIR = BASE_DIR / "docs"
 
-VERSION = "1.10.2-dev"
+VERSION = "1.10.5-dev"
 
 major, minor, _ = platform.python_version_tuple()
 if (int(major), int(minor)) < (3, 10):
@@ -194,7 +194,7 @@ FILTERS_NULL_CHOICE_VALUE = "null"
 
 
 # Use major.minor as API version
-REST_FRAMEWORK_VERSION = ".".join(VERSION.split("-")[0].split(".")[:2])
+REST_FRAMEWORK_VERSION = ".".join(VERSION.split("-", maxsplit=1)[0].split(".")[:2])
 REST_FRAMEWORK = {
     "ALLOWED_VERSIONS": [REST_FRAMEWORK_VERSION],
     "COERCE_DECIMAL_TO_STRING": False,
@@ -550,6 +550,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "peering_manager.context_processors.settings",
+                "peering_manager.context_processors.navigation",
                 "peering_manager.context_processors.affiliated_autonomous_systems",
             ]
         },

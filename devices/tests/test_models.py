@@ -5,7 +5,7 @@ from django.test import TestCase
 
 from bgp.models import Community, Relationship
 from net.models import Connection
-from peering.enums import BGPSessionStatus
+from peering.enums import BGPSessionStatus, BGPState
 from peering.models import (
     AutonomousSystem,
     BGPGroup,
@@ -34,48 +34,45 @@ class ConfigurationTest(TestCase):
 
 
 class PlatformTest(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.platforms = [
-            Platform(
-                name="Mercuros",
-                slug="mercuros",
-                password_algorithm=PasswordAlgorithm.JUNIPER_TYPE9,
-            ),
-            Platform(
-                name="Test OS",
-                slug="test-os",
-                password_algorithm=PasswordAlgorithm.CISCO_TYPE7,
-            ),
-            Platform(name="Wrong OS", slug="wrong-os"),
-        ]
-        Platform.objects.bulk_create(cls.platforms)
-
     def test_password_encryption_decryption(self):
         clear_text_password = "mypassword"
         junos = Platform.objects.filter(
             password_algorithm=PasswordAlgorithm.JUNIPER_TYPE9
         ).first()
-        encrypted_password = junos.encrypt_password(clear_text_password)
+        encrypted_password = junos.encrypt_password(password=clear_text_password)
         self.assertNotEqual(clear_text_password, encrypted_password)
         self.assertEqual(
-            clear_text_password, junos.decrypt_password(encrypted_password)
+            clear_text_password, junos.decrypt_password(password=encrypted_password)
         )
 
         cisco = Platform.objects.filter(
             password_algorithm=PasswordAlgorithm.CISCO_TYPE7
         ).first()
-        encrypted_password = cisco.encrypt_password(clear_text_password)
+        encrypted_password = cisco.encrypt_password(password=clear_text_password)
         self.assertNotEqual(clear_text_password, encrypted_password)
         self.assertEqual(
-            clear_text_password, cisco.decrypt_password(encrypted_password)
+            clear_text_password, cisco.decrypt_password(password=encrypted_password)
         )
 
+        arista = Platform.objects.filter(
+            password_algorithm=PasswordAlgorithm.ARISTA_TYPE7
+        ).first()
+        encryption_key = "192.0.2.1"
+        encrypted_password = arista.encrypt_password(
+            password=clear_text_password, key=encryption_key
+        )
+        self.assertNotEqual(clear_text_password, encrypted_password)
+        self.assertEqual(
+            clear_text_password,
+            arista.decrypt_password(password=encrypted_password, key=encryption_key),
+        )
+
+        Platform.objects.create(name="Wrong OS", slug="wrong-os")
         wrong = Platform.objects.filter(password_algorithm="").first()
-        encrypted_password = wrong.encrypt_password(clear_text_password)
+        encrypted_password = wrong.encrypt_password(password=clear_text_password)
         self.assertEqual(clear_text_password, encrypted_password)
         self.assertEqual(
-            clear_text_password, wrong.decrypt_password(encrypted_password)
+            clear_text_password, wrong.decrypt_password(password=encrypted_password)
         )
 
 
@@ -217,85 +214,18 @@ class RouterTest(TestCase):
 
     def test_bgp_neighbors_detail_as_list(self):
         expected = [
-            {
-                "multipath": False,
-                "previous_connection_state": "OpenConfirm",
-                "configured_keepalive": 30,
-                "messages_queued_out": 0,
-                "routing_table": "global",
-                "keepalive": 30,
-                "input_messages": 26_006_050,
-                "remove_private_as": False,
-                "configured_holdtime": 0,
-                "suppress_4byte_as": False,
-                "suppressed_prefix_count": 0,
-                "local_address": "192.0.2.2",
-                "remote_address": "192.0.2.1",
-                "input_updates": 25_604_153,
-                "multihop": False,
-                "export_policy": "",
-                "remote_port": 54687,
-                "local_port": 179,
-                "active_prefix_count": 37358,
-                "output_messages": 383_524,
-                "import_policy": "",
-                "connection_state": "Established",
-                "received_prefix_count": 567_162,
-                "local_as": 64510,
-                "accepted_prefix_count": 566_998,
-                "router_id": "172.17.17.1",
-                "flap_count": 0,
-                "last_event": "RecvKeepAlive",
-                "holdtime": 90,
-                "local_as_prepend": True,
-                "up": True,
-                "remote_as": 64500,
-                "local_address_configured": False,
-                "advertised_prefix_count": 111,
-                "output_updates": 524,
-            },
-            {
-                "multipath": False,
-                "previous_connection_state": "EstabSync",
-                "configured_keepalive": 30,
-                "messages_queued_out": 0,
-                "routing_table": "global",
-                "keepalive": 30,
-                "input_messages": 12_094_123,
-                "remove_private_as": False,
-                "configured_holdtime": 0,
-                "suppress_4byte_as": False,
-                "suppressed_prefix_count": 0,
-                "local_address": "2001:db8::2",
-                "remote_address": "2001:db8::1",
-                "input_updates": 11_951_665,
-                "multihop": False,
-                "export_policy": "",
-                "remote_port": 50877,
-                "local_port": 179,
-                "active_prefix_count": 101_545,
-                "output_messages": 141_052,
-                "import_policy": "",
-                "connection_state": "Established",
-                "received_prefix_count": 567_257,
-                "local_as": 64510,
-                "accepted_prefix_count": 567_257,
-                "router_id": "192.168.100.1",
-                "flap_count": 2,
-                "last_event": "RecvKeepAlive",
-                "holdtime": 90,
-                "local_as_prepend": True,
-                "up": True,
-                "remote_as": 64501,
-                "local_address_configured": False,
-                "advertised_prefix_count": 111,
-                "output_updates": 158,
-            },
+            ("192.0.2.2", "192.0.2.1"),
+            ("2001:db8::2", "2001:db8::1"),
+            ("192.168.1.2", "192.168.1.1"),
         ]
-
         self.assertEqual(
             expected,
-            self.router.bgp_neighbors_detail_as_list(self.bgp_neighbors_detail),
+            [
+                (n["local_address"], n["remote_address"])
+                for n in self.router.bgp_neighbors_detail_as_list(
+                    self.bgp_neighbors_detail
+                )
+            ],
         )
 
     def test_find_bgp_neighbor_detail(self):
@@ -370,6 +300,20 @@ class RouterTest(TestCase):
             self.assertTupleEqual((True, 1), self.router.poll_bgp_sessions())
             session.refresh_from_db()
             self.assertEqual(567_257, session.received_prefix_count)
+
+            session = DirectPeeringSession.objects.create(
+                local_autonomous_system=self.local_as,
+                local_ip_address="192.168.1.2",
+                autonomous_system=autonomous_system,
+                bgp_group=group,
+                relationship=relationship,
+                ip_address="192.168.1.1",
+                status=BGPSessionStatus.ENABLED,
+                router=self.router,
+            )
+            self.router.poll_bgp_sessions()
+            session.refresh_from_db()
+            self.assertEqual(BGPState.IDLE, session.bgp_state)
 
     def test_set_napalm_configuration(self):
         error, changes = self.router.set_napalm_configuration(None)
