@@ -704,3 +704,53 @@ class Jinja2FilterTestCase(TestCase):
 
         with self.assertRaises(ValueError):
             FILTER_DICT["relationships"](self.ixp_connection)
+
+    def test_ip_to_int(self):
+        ip_to_int = FILTER_DICT["ip_to_int"]
+
+        # Plain IPv4 address, no prefix — full integer
+        self.assertEqual(ip_to_int("192.168.1.1"), 3232235777)
+
+        # IPv4 with embedded /24 — last octet zeroed
+        self.assertEqual(ip_to_int("192.168.1.5/24"), 3232235776)
+
+        # IPv4 with explicit prefix_length argument overriding embedded one
+        self.assertEqual(ip_to_int("192.168.1.5/24", prefix_length=16), 3232235520)
+
+        # IPv4 with /22 — non-byte-aligned mask
+        # 10.1.2.3/22 → network 10.1.0.0 = 0x0A010000
+        self.assertEqual(ip_to_int("10.1.2.3/22"), (10 << 24) | (1 << 16))
+
+        # IPv4 with /32 — host address unchanged
+        self.assertEqual(ip_to_int("1.2.3.4/32"), (1 << 24) | (2 << 16) | (3 << 8) | 4)
+
+        # IPv4 with /0 — all bits zeroed
+        self.assertEqual(ip_to_int("10.20.30.40/0"), 0)
+
+        # IPv6 plain address
+        import ipaddress
+        self.assertEqual(ip_to_int("2001:db8::1"), int(ipaddress.ip_address("2001:db8::1")))
+
+        # IPv6 with embedded /32
+        self.assertEqual(
+            ip_to_int("2001:db8::1/32"),
+            int(ipaddress.ip_network("2001:db8::1/32", strict=False).network_address),
+        )
+
+        # IPv6 with explicit prefix_length
+        self.assertEqual(
+            ip_to_int("2001:db8:1:2::5", prefix_length=48),
+            int(ipaddress.ip_network("2001:db8:1:2::5/48", strict=False).network_address),
+        )
+
+        # Invalid address raises ValueError
+        with self.assertRaises(ValueError):
+            ip_to_int("not.an.ip")
+
+        # Invalid embedded prefix raises ValueError
+        with self.assertRaises(ValueError):
+            ip_to_int("192.168.1.1/bad")
+
+        # Out-of-range prefix raises ValueError
+        with self.assertRaises(ValueError):
+            ip_to_int("192.168.1.1", prefix_length=33)
